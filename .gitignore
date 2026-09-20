@@ -1,0 +1,12 @@
+*
+!/.gitignore
+!/README.md
+!/check_public.py
+!/site/
+!/site/index.html
+!/site/app.js
+!/site/style.css
+!/site/favicon.svg
+!/.github/
+!/.github/workflows/
+!/.github/workflows/pages.yml
