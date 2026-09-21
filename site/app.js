@@ -89,8 +89,9 @@
     const selected = asset();
     $('crumb-symbol').textContent = state.symbol;
     $('metric-symbol').textContent = selected.badge;
-    $('chart-title').replaceChildren(document.createTextNode(selected.name + ' '), element('span', '', selected.badge));
-    $('chart-symbol').textContent = selected.badge;
+    const badge = element('span', '', selected.badge);
+    badge.id = 'chart-symbol';
+    $('chart-title').replaceChildren(document.createTextNode(selected.name + ' '), badge);
     $('chart-subtitle').textContent = selected.market;
     $('open-chart').href = chartURL();
     $('timezone').value = state.timezone;
