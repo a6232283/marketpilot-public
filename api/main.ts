@@ -338,14 +338,27 @@ async function geminiJSON(prompt: string, schema: unknown, key: string, visitorK
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0.2, maxOutputTokens: 1200, responseMimeType: 'application/json', responseJsonSchema: schema }
   };
-  let answer: Response;
-  try {
-    answer = await fetch(GEMINI_ENDPOINT + encodeURIComponent(safeModel(setting('GEMINI_MODEL'))) + ':generateContent', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(25_000)
-    });
-  } catch {
-    throw new PublicError('AI 服務暫時無法連線。', 502);
+  let answer: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      answer = await fetch(GEMINI_ENDPOINT + encodeURIComponent(safeModel(setting('GEMINI_MODEL'))) + ':generateContent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(25_000)
+      });
+    } catch {
+      if (attempt === 1) throw new PublicError('AI 服務暫時無法連線。', 502);
+      await reserveAI('standard', false, visitorKey);
+      await new Promise(resolve => setTimeout(resolve, 700));
+      continue;
+    }
+    if (attempt === 0 && [500, 502, 503, 504].includes(answer.status)) {
+      await answer.body?.cancel();
+      await reserveAI('standard', false, visitorKey);
+      await new Promise(resolve => setTimeout(resolve, 700));
+      continue;
+    }
+    break;
   }
+  if (!answer) throw new PublicError('AI 服務暫時無法連線。', 502);
   if (answer.status === 429) throw new PublicError('AI 服務目前額度不足或正在限流，請稍後再試。', 429, 120);
   if (visitorKey && (answer.status === 400 || answer.status === 401 || answer.status === 403)) {
     throw new PublicError('自備 Gemini API key 無法使用；請檢查金鑰與 Google 專案權限。', 400);
