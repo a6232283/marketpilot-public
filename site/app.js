@@ -43,7 +43,7 @@
     const raw = document.documentElement.dataset.apiBase || '';
     try {
       const value = new URL(raw);
-      return value.protocol === 'https:' && /^[a-z0-9][a-z0-9.-]*[.]workers[.]dev$/i.test(value.hostname) ? value.origin : '';
+      return value.protocol === 'https:' && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.]deno[.]dev$/i.test(value.hostname) ? value.origin : '';
     } catch { return ''; }
   })();
   let saved = {};
@@ -118,7 +118,7 @@
     });
     $('research-consent').checked = state.researchConsent;
     $('run-analysis').disabled = state.busy || !state.researchConsent || !configuredApi;
-    $('run-analysis').textContent = state.busy ? '研究服務處理中…' : configuredApi ? '取得條件式研究 ↗' : '公開研究服務部署中';
+    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : configuredApi ? 'AI 深度評估 ↗' : '公開研究服務部署中';
     if (!configuredApi) {
       $('service-state').textContent = '公開研究服務部署中'; setTone($('service-state'), 'neutral');
       $('analysis-status').textContent = '服務尚未設定'; setTone($('analysis-status'), 'neutral');

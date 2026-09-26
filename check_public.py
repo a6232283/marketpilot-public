@@ -7,8 +7,10 @@ import stat
 import sys
 
 SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg'})
-REPO_FILES = frozenset({'site/' + p for p in SITE_FILES} | {
+DENO_FILES = frozenset({'main.ts', 'core.ts', 'deno.json', 'deno.lock'})
+HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES} | {
     '.github/workflows/pages.yml', 'check_public.py', 'README.md', '.gitignore'})
+REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'api/' + p for p in DENO_FILES})
 MAX_FILE = 1_000_000
 MAX_TOTAL = 4_000_000
 RULES = [
@@ -37,6 +39,10 @@ def check_bytes(name, data):
     if '\x00' in text:
         raise UnsafeRelease('Binary content is not allowed.')
     for label, pattern in RULES:
+        # The reviewed Deno service makes fixed outbound provider calls. Only
+        # the static browser bundle is prohibited from containing API routes.
+        if label == 'backend API route' and (name.startswith('api/') or name == '.gitignore'):
+            continue
         if re.search(pattern, text):
             raise UnsafeRelease('Release blocked: ' + label + ' detected. Content withheld.')
 

@@ -7,6 +7,11 @@
 !/site/app.js
 !/site/style.css
 !/site/favicon.svg
+!/api/
+!/api/main.ts
+!/api/core.ts
+!/api/deno.json
+!/api/deno.lock
 !/.github/
 !/.github/workflows/
 !/.github/workflows/pages.yml
