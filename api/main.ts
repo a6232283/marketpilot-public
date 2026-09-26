@@ -1,5 +1,6 @@
 /*
- * Deno Deploy public research service. Secrets are read only from Deno Deploy
+ * Deno Deploy public research service. GitHub builds this file from api/.
+ * Secrets are read only from Deno Deploy
  * Secrets. A visitor can supply their own Gemini key for a single research
  * request, but cannot select providers, models, MCP tools, URLs, or trading actions.
  */
