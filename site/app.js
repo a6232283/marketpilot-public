@@ -65,7 +65,12 @@
     serviceChecked: false,
     sharedAi: false,
     keySource: 'shared',
-    analysisMode: 'standard'
+    analysisMode: 'standard',
+    dailySymbol: '',
+    dailyLevels: null,
+    dailyChecked: false,
+    dailyRequest: 0,
+    dailyDue: 0
   };
   const slots = new Map();
   let renderTimer;
@@ -162,6 +167,7 @@
     $('strategy-message').textContent = '依目前標的與週期重新研究後，才會顯示對應的條件走線。';
     $('strategy-cards').replaceChildren(element('div', 'strategy-no-plan', '目前沒有對應這個標的與週期的策略價位。'));
     $('strategy-time').textContent = '尚無研究時間';
+    renderDailyOnly();
     updateControls();
   }
 
@@ -245,7 +251,7 @@
   function allowExternal() {
     if (!state.allowed) { state.allowed = true; write(CONSENT_KEY, 'granted'); }
     const url = new URL(window.location.href); url.searchParams.delete('external'); window.history.replaceState(null, '', url);
-    updateControls(); renderWidgets();
+    updateControls(); renderWidgets(); loadDailyLevels();
   }
 
   function revokeExternal() {
@@ -336,6 +342,57 @@
     const line = svg('polyline', { points: points.map(point => point.join(',')).join(' '), fill: 'none', stroke: color, 'stroke-width': 3, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
     if (dash) line.setAttribute('stroke-dasharray', dash);
     canvas.append(line);
+  }
+
+  function renderDailyOnly() {
+    if (state.lastResearch) return;
+    const chart = $('strategy-svg');
+    chart.replaceChildren(svg('rect', { width: 1000, height: 260, fill: '#111923' }));
+    const cards = $('strategy-cards'); cards.replaceChildren();
+    const daily = state.dailySymbol === state.symbol ? state.dailyLevels : null;
+    if (!daily || !Number.isFinite(Number(daily.support)) || !Number.isFinite(Number(daily.resistance))) {
+      $('strategy-badge').textContent = state.dailyChecked && state.dailySymbol === state.symbol ? '日線暫不可用' : '等待日線';
+      setTone($('strategy-badge'), 'neutral');
+      $('strategy-message').textContent = state.allowed ? '正在檢查最近 20 根已完成日 K；資料來源不足或限流時不顯示歷史水平線。AI 評估需另行手動執行。' : '同意載入市場資料後，即可查看 20 日支撐與壓力；AI 評估需另行手動執行。';
+      cards.append(element('div', 'strategy-no-plan', '20 日支撐／壓力暫無可用完整日線，不會以分鐘 K 線替代。'));
+      $('strategy-time').textContent = '尚無完整日線時間';
+      chart.setAttribute('aria-label', '20 日日線資料尚未可用');
+      return;
+    }
+    const support = Number(daily.support), resistance = Number(daily.resistance);
+    const span = Math.max(resistance - support, Math.abs(resistance) * .01, 1);
+    const lower = support - span * .25, upper = resistance + span * .25;
+    const y = value => 220 - (value - lower) / (upper - lower) * 180;
+    [['20 日壓力', resistance, '#ee9aa9', -9], ['20 日支撐', support, '#80d4a7', 16]].forEach(([label, value, color, offset]) => {
+      const yy = y(Number(value));
+      chart.append(svg('line', { x1: 98, y1: yy, x2: 942, y2: yy, stroke: color, 'stroke-width': 2, 'stroke-dasharray': '7 6' }));
+      const text = svg('text', { x: 112, y: yy + offset, fill: color, 'font-size': 15 });
+      text.textContent = label + ' ' + formatNumber(value, asset().currency);
+      chart.append(text);
+      const card = element('div', 'strategy-card ' + (label.includes('支撐') ? 'support' : 'resistance'));
+      card.append(element('span', '', label), element('strong', '', formatNumber(value, asset().currency)), element('small', '', daily.basis + ' · ' + formatTime(daily.lastBarTime)));
+      cards.append(card);
+    });
+    chart.setAttribute('aria-label', state.symbol + ' 最近 20 個完整日線的支撐與壓力');
+    $('strategy-badge').textContent = '歷史 20 日'; setTone($('strategy-badge'), 'neutral');
+    $('strategy-message').textContent = '水平線取最近 20 根已完成日 K 的最低價與最高價；只表示歷史區間，AI 方向與條件走線須另行研究。';
+    $('strategy-time').textContent = '最後完整日 K：' + formatTime(daily.lastBarTime);
+  }
+
+  async function loadDailyLevels() {
+    if (!state.allowed || !configuredApi) return;
+    const request = ++state.dailyRequest, symbol = state.symbol;
+    state.dailyDue = Date.now() + 300000;
+    try {
+      const result = await callResearch('/v1/levels?symbol=' + encodeURIComponent(symbol));
+      if (request !== state.dailyRequest || symbol !== state.symbol || result.symbol !== symbol) return;
+      state.dailySymbol = symbol; state.dailyLevels = result.dailyLevels || null; state.dailyChecked = true;
+      state.dailyDue = Date.now() + (state.dailyLevels ? 1800000 : 300000);
+    } catch {
+      if (request !== state.dailyRequest || symbol !== state.symbol) return;
+      state.dailySymbol = symbol; state.dailyLevels = null; state.dailyChecked = true; state.dailyDue = Date.now() + 300000;
+    }
+    if (!state.lastResearch) renderDailyOnly();
   }
 
   function drawStrategy(market, assessment, generatedAt) {
