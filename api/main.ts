@@ -153,7 +153,7 @@ async function cached<T>(name: string, seconds: number, factory: () => Promise<T
 
 async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS) {
   const ttl = asset.kind === 'crypto' ? 30 : 60;
-  const snapshot = await cached('market/' + symbol + '/' + interval, ttl, async () => {
+  const snapshot = await cached('market/v2/' + symbol + '/' + interval, ttl, async () => {
     const fetchedAt = Math.floor(Date.now() / 1000);
     const step = INTERVAL_SECONDS[interval];
     if (asset.kind === 'crypto') {
@@ -199,7 +199,7 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
   const open = asset.kind === 'crypto' || snapshot.marketState === 'REGULAR';
   const barLimit = asset.kind === 'crypto' ? step + 120 : open ? step * 3 + 300 : 7 * 86_400;
   const quoteLimit = asset.kind === 'crypto' ? 600 : open ? 1_800 : 7 * 86_400;
-  if (snapshot.barEndTime > now + 120 || snapshot.quoteTime > now + 120 || now - snapshot.barEndTime > barLimit || now - snapshot.quoteTime > quoteLimit) {
+  if (!Number.isFinite(snapshot.barEndTime) || !Number.isFinite(snapshot.quoteTime) || snapshot.barEndTime > now + 120 || snapshot.quoteTime > now + 120 || now - snapshot.barEndTime > barLimit || now - snapshot.quoteTime > quoteLimit) {
     throw new PublicError('行情或已收盤 K 線時間過期，暫不產生新研究。', 503);
   }
   return snapshot;
@@ -248,7 +248,7 @@ async function mcpCall(session: { id: string; protocol: string }, id: number, me
 async function jin10Flashes(): Promise<Flashes> {
   if (!setting('JIN10_MCP_TOKEN')) return { available: false, fetchedAt: 0, items: [] };
   const seconds = asPositiveInt(setting('JIN10_CACHE_SECONDS'), 120, 60, 900);
-  return await cached('jin10/list-flash', seconds, async () => {
+  return await cached('jin10/recent-flash-v2', seconds, async () => {
     const signal = AbortSignal.timeout(25_000);
     const session = { id: '', protocol: '2025-11-25' };
     let id = 1;

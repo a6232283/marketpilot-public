@@ -59,6 +59,8 @@
     lastResearch: null,
     researchRequest: 0,
     researchAbort: null,
+    researchTimer: null,
+    researchStartedAt: 0,
     serviceReady: false,
     serviceChecked: false,
     sharedAi: false,
@@ -139,6 +141,9 @@
     state.researchRequest += 1;
     state.researchAbort?.abort();
     state.researchAbort = null;
+    clearInterval(state.researchTimer);
+    state.researchTimer = null;
+    $('analysis-progress').hidden = true;
     state.busy = false;
     state.lastResearch = null;
     $('analysis').replaceChildren(element('div', 'analysis-empty', '請依目前標的與 K 線週期重新執行 AI 深度評估。'));
@@ -281,7 +286,7 @@
       });
       details.append(grid); wrap.append(details);
     }
-    const meta = element('p', 'analysis-meta', '透明規則：' + actionText(result.ruleAction) + ' · 事件風險：' + (result.eventRisk || 'UNKNOWN') + ' · 資料時間：' + formatTime(data.generatedAt || market.fetchedAt));
+    const meta = element('p', 'analysis-meta', '透明規則：' + actionText(result.ruleAction) + ' · 事件風險：' + (result.eventRisk || 'UNKNOWN') + ' · 已收盤 K 線：' + formatTime(market.barEndTime) + ' · 報價：' + formatTime(market.quoteTime));
     wrap.append(meta); root.append(wrap);
     $('analysis-status').textContent = actionText(action); setTone($('analysis-status'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
     $('metric-ai').textContent = actionText(action); setTone($('metric-ai'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
@@ -289,8 +294,8 @@
     $('metric-rule').textContent = actionText(result.ruleAction); setTone($('metric-rule'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[result.ruleAction]);
     $('metric-score').textContent = '證據分數 ' + (Number.isFinite(market.score) ? market.score : '—') + ' · 一致性非勝率';
     $('metric-price').textContent = formatNumber(market.price, market.currency || asset().currency);
-    $('metric-source').textContent = market.source || '資料來源未確認';
-    $('metric-freshness').textContent = formatTime(market.fetchedAt);
+    $('metric-source').textContent = (market.source || '資料來源未確認') + ' · 已收盤 K 線';
+    $('metric-freshness').textContent = formatTime(market.quoteTime);
     $('metric-news').textContent = data.news?.available ? '已納入' : '暫未使用'; setTone($('metric-news'), data.news?.available ? 'up' : 'neutral');
     $('metric-news-detail').textContent = data.news?.available ? '受限事件資料 ' + data.news.count + ' 則 · ' + formatTime(data.news.fetchedAt) : '未提供可用事件脈絡';
     $('news-state').textContent = data.news?.available ? 'AI 事件脈絡已更新' : '金十資料暫不可用'; setTone($('news-state'), data.news?.available ? 'up' : 'neutral');
@@ -401,7 +406,14 @@
     const symbol = state.symbol, interval = state.interval, debate = $('ai-debate').checked;
     state.researchAbort = controller;
     const timeout = setTimeout(() => controller.abort(), debate ? 145000 : 80000);
-    state.busy = true; updateControls();
+    state.busy = true;
+    state.researchStartedAt = performance.now();
+    const progress = $('analysis-progress');
+    const updateProgress = () => { progress.textContent = '研究請求已送出 · 已等待 ' + Math.floor((performance.now() - state.researchStartedAt) / 1000) + ' 秒' + (debate ? ' · 多空辯論需 3 次模型回應' : ''); };
+    progress.hidden = false;
+    updateProgress();
+    state.researchTimer = setInterval(updateProgress, 1000);
+    updateControls();
     $('analysis-status').textContent = '研究處理中'; setTone($('analysis-status'), 'neutral');
     try {
       const body = { symbol, interval, debate };
@@ -416,7 +428,11 @@
       $('analysis-status').textContent = '未產生結論'; setTone($('analysis-status'), 'neutral');
     } finally {
       clearTimeout(timeout);
-      if (request === state.researchRequest) { state.researchAbort = null; state.busy = false; updateControls(); }
+      if (request === state.researchRequest) {
+        clearInterval(state.researchTimer); state.researchTimer = null;
+        progress.hidden = true;
+        state.researchAbort = null; state.busy = false; updateControls();
+      }
     }
   }
 
