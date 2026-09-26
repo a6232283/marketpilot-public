@@ -8,12 +8,10 @@ import {
   CASE_SCHEMA,
   INTERVALS,
   INTERVAL_SECONDS,
-  MAX_NEWS_ITEMS,
   PUBLIC_ASSETS,
   PublicError,
   asPositiveInt,
   clampText,
-  cleanBars,
   completedBars,
   finiteNumber,
   normalizeResearchRequest,
@@ -155,15 +153,19 @@ async function cached<T>(name: string, seconds: number, factory: () => Promise<T
 
 async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS) {
   const ttl = asset.kind === 'crypto' ? 30 : 60;
-  return await cached('market/' + symbol + '/' + interval, ttl, async () => {
+  const snapshot = await cached('market/' + symbol + '/' + interval, ttl, async () => {
+    const fetchedAt = Math.floor(Date.now() / 1000);
+    const step = INTERVAL_SECONDS[interval];
     if (asset.kind === 'crypto') {
       const parameters = new URLSearchParams({ symbol, interval: INTERVALS[interval].crypto, limit: '200' });
       const rows = await providerJSON('https://data-api.binance.vision/api/v3/klines?' + parameters);
-      const bars = cleanBars(Array.isArray(rows) ? rows.map(row => Array.isArray(row) ? ({ time: Number(row[0]) / 1000, open: row[1], high: row[2], low: row[3], close: row[4], volume: row[5] }) : {}) : []);
+      const bars = completedBars(Array.isArray(rows) ? rows.map(row => Array.isArray(row) ? ({ time: Number(row[0]) / 1000, open: row[1], high: row[2], low: row[3], close: row[4], volume: row[5] }) : {}) : [], interval, fetchedAt);
       const ticker = await providerJSON('https://data-api.binance.vision/api/v3/ticker/24hr?' + new URLSearchParams({ symbol }));
       const price = ticker && typeof ticker === 'object' ? finiteNumber((ticker as JsonRecord).lastPrice) : null;
-      if (bars.length < 60 || price === null || price <= 0) throw new PublicError('市場來源尚無足夠可用 K 線資料。', 502);
-      return { bars, price, source: 'Binance 公開現貨行情', fetchedAt: Math.floor(Date.now() / 1000) };
+      const closeMillis = ticker && typeof ticker === 'object' ? finiteNumber((ticker as JsonRecord).closeTime) : null;
+      const quoteTime = closeMillis === null ? null : Math.floor(closeMillis / 1000);
+      if (bars.length < 60 || price === null || price <= 0 || quoteTime === null) throw new PublicError('市場來源尚無足夠可用 K 線或報價時間。', 502);
+      return { bars, price, quoteTime, barEndTime: bars.at(-1)!.time + step, marketState: 'REGULAR', source: 'Binance 公開現貨行情', fetchedAt };
     }
     // Five trading days has fewer than 60 hourly bars. Use a month for 1h so
     // every permitted stock interval can be assessed with the same rule set.
@@ -179,12 +181,28 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
     const quote = quotes[0] && typeof quotes[0] === 'object' ? quotes[0] as JsonRecord : {};
     const timestamps = Array.isArray(chart.timestamp) ? chart.timestamp : [];
     const column = (name: string, index: number) => Array.isArray(quote[name]) ? quote[name][index] : null;
-    const bars = cleanBars(timestamps.map((time, index) => ({ time, open: column('open', index), high: column('high', index), low: column('low', index), close: column('close', index), volume: column('volume', index) })));
     const meta = chart.meta && typeof chart.meta === 'object' ? chart.meta as JsonRecord : {};
+    const trading = meta.currentTradingPeriod && typeof meta.currentTradingPeriod === 'object' ? meta.currentTradingPeriod as JsonRecord : {};
+    const regular = trading.regular && typeof trading.regular === 'object' ? trading.regular as JsonRecord : {};
+    const sessionEnd = finiteNumber(regular.end) ?? undefined;
+    const bars = completedBars(timestamps.map((time, index) => ({ time, open: column('open', index), high: column('high', index), low: column('low', index), close: column('close', index), volume: column('volume', index) })), interval, fetchedAt, sessionEnd);
     const price = finiteNumber(meta.regularMarketPrice);
     if (bars.length < 60 || price === null || price <= 0) throw new PublicError('市場來源尚無足夠可用 K 線資料。', 502);
-    return { bars, price, source: 'Yahoo Finance 公開資料（非官方 API）', fetchedAt: Math.floor(Date.now() / 1000) };
+    const last = bars.at(-1)!;
+    const barEndTime = sessionEnd && sessionEnd > last.time && sessionEnd < last.time + step ? sessionEnd : last.time + step;
+    const quoteTime = finiteNumber(meta.regularMarketTime) ?? barEndTime;
+    const marketState = typeof meta.marketState === 'string' ? meta.marketState : 'UNKNOWN';
+    return { bars, price, quoteTime, barEndTime, marketState, source: 'Yahoo Finance 公開資料（非官方 API）', fetchedAt };
   });
+  const now = Math.floor(Date.now() / 1000);
+  const step = INTERVAL_SECONDS[interval];
+  const open = asset.kind === 'crypto' || snapshot.marketState === 'REGULAR';
+  const barLimit = asset.kind === 'crypto' ? step + 120 : open ? step * 3 + 300 : 7 * 86_400;
+  const quoteLimit = asset.kind === 'crypto' ? 600 : open ? 1_800 : 7 * 86_400;
+  if (snapshot.barEndTime > now + 120 || snapshot.quoteTime > now + 120 || now - snapshot.barEndTime > barLimit || now - snapshot.quoteTime > quoteLimit) {
+    throw new PublicError('行情或已收盤 K 線時間過期，暫不產生新研究。', 503);
+  }
+  return snapshot;
 }
 
 function stripMarkup(value: unknown) {
@@ -260,12 +278,12 @@ async function jin10Flashes(): Promise<Flashes> {
     const data = structured?.data && typeof structured.data === 'object' ? structured.data as JsonRecord : {};
     const rows = structured?.status === 200 && Array.isArray(data.items) ? data.items : [];
     const now = Math.floor(Date.now() / 1000);
-    const items = rows.slice(0, 30).map((row, index) => {
+    const items = recentFlashes(rows.slice(0, 100).map((row, index) => {
       const item = row && typeof row === 'object' ? row as JsonRecord : {};
       const published = Math.floor(new Date(String(item.time || '')).getTime() / 1000);
       return { id: 'jin10-' + clampText(String(item.id || index), 100), published, text: stripMarkup(item.content || item.introduction || '') };
-    }).filter(item => item.text && Number.isFinite(item.published) && item.published <= now + 120).slice(0, MAX_NEWS_ITEMS);
-    return { available: true, fetchedAt: now, items };
+    }).filter(item => item.text), now);
+    return { available: items.length > 0, fetchedAt: now, items };
   });
 }
 
@@ -379,7 +397,10 @@ async function research(request: Request) {
   if (!geminiKey) throw new PublicError('請改用自備 Gemini API key；站方 AI 額度尚未啟用。', 503);
   await protectResearch(request);
   const market = await marketSnapshot(input.symbol, input.asset, input.interval);
-  const technical = technicalAssessment(market.bars, { ...input.asset, symbol: input.symbol }, input.interval, market.price);
+  const technical = {
+    ...technicalAssessment(market.bars, { ...input.asset, symbol: input.symbol }, input.interval, market.price),
+    quoteTime: market.quoteTime, barEndTime: market.barEndTime, marketState: market.marketState
+  };
   let flashes: Flashes;
   try {
     flashes = await jin10Flashes();
