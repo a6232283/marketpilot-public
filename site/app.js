@@ -6,7 +6,6 @@
   const INTERVALS = Object.freeze({
     '5m': ['5 分鐘', '5'], '15m': ['15 分鐘', '15'], '30m': ['30 分鐘', '30'], '1h': ['1 小時', '60']
   });
-  const RANGES = Object.freeze({ '1D': '1D', '1W': '1W', '1M': '1M', '3M': '3M', '1Y': '1Y' });
   const ZONES = Object.freeze(['Asia/Taipei', 'Etc/UTC', 'exchange']);
   const ASSETS = Object.freeze({
     BTCUSDT: { name: 'Bitcoin', badge: 'BTC / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:BTCUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
@@ -53,7 +52,6 @@
     allowed: !forcedOff && read(CONSENT_KEY) === 'granted',
     symbol: Object.hasOwn(ASSETS, saved.symbol) ? saved.symbol : 'BTCUSDT',
     interval: Object.hasOwn(INTERVALS, saved.interval) ? saved.interval : '15m',
-    range: Object.hasOwn(RANGES, saved.range) ? saved.range : '1D',
     timezone: ZONES.includes(saved.timezone) ? saved.timezone : 'Asia/Taipei',
     marketFilter: ['all', 'crypto', 'stock'].includes(saved.marketFilter) ? saved.marketFilter : 'all',
     researchConsent: false,
@@ -68,7 +66,7 @@
   let renderTimer;
 
   function saveOptions() {
-    write(OPTIONS_KEY, JSON.stringify({ symbol: state.symbol, interval: state.interval, range: state.range, timezone: state.timezone, marketFilter: state.marketFilter }));
+    write(OPTIONS_KEY, JSON.stringify({ symbol: state.symbol, interval: state.interval, timezone: state.timezone, marketFilter: state.marketFilter }));
   }
 
   function asset() { return ASSETS[state.symbol]; }
@@ -99,7 +97,7 @@
     $('chart-subtitle').textContent = selected.market;
     $('open-chart').href = chartURL();
     $('timezone').value = state.timezone;
-    $('chart-selection').textContent = '每根 K 線 ' + INTERVALS[state.interval][0] + ' · 顯示範圍 ' + state.range + ' · ' + state.timezone;
+    $('chart-selection').textContent = '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準';
     $('chart-refresh-status').textContent = !state.allowed ? '圖表在取得同意後由 TradingView 載入' : '資料由 TradingView 提供；延遲與交易時段以圖內標示為準';
     $('consent-card').hidden = state.allowed;
     $('connection-bar').hidden = !state.allowed;
@@ -114,10 +112,6 @@
     });
     document.querySelectorAll('[data-interval]').forEach(button => {
       const active = button.dataset.interval === state.interval;
-      button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
-    });
-    document.querySelectorAll('[data-range]').forEach(button => {
-      const active = button.dataset.range === state.range;
       button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
     });
     $('research-consent').checked = state.researchConsent;
@@ -198,7 +192,7 @@
       slot.observer.disconnect();
       frame.addEventListener('load', () => {
         clearTimeout(slot.timeout); slot.loaded = true;
-        if (kind === 'chart' && root.contains(wrapper)) $('chart-refresh-status').textContent = '每根 K 線 ' + INTERVALS[state.interval][0] + ' · 圖表由 TradingView 提供，歷史範圍可在圖內調整';
+        if (kind === 'chart' && root.contains(wrapper)) $('chart-refresh-status').textContent = '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · 圖表由 TradingView 提供，顯示範圍可在圖內縮放';
       }, { once: true });
     });
     slot.observer.observe(wrapper, { childList: true, subtree: true });
@@ -219,7 +213,7 @@
 
   function renderWidgets() {
     if (!state.allowed) return;
-    mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], timezone: state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
+    mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], timezone: state.timezone === 'exchange' ? asset().zone : state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, hide_top_toolbar: true, withdateranges: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
     mount('news', { feedMode: 'all_symbols', colorTheme: 'dark', isTransparent: true, displayMode: 'regular', width: '100%', height: '100%', locale: 'zh_TW' }, '市場新聞');
     mount('overview', { colorTheme: 'dark', dateRange: '1D', showChart: true, locale: 'zh_TW', width: '100%', height: '100%', isTransparent: true, showSymbolLogo: true, showFloatingTooltip: true, tabs: [
       { title: '加密貨幣', symbols: [{ s: 'BINANCE:BTCUSDT', d: 'Bitcoin' }, { s: 'BINANCE:ETHUSDT', d: 'Ethereum' }, { s: 'BINANCE:SOLUSDT', d: 'Solana' }] },
@@ -434,7 +428,7 @@
   $('revoke-external').addEventListener('click', revokeExternal);
   $('privacy-revoke').addEventListener('click', revokeExternal);
   $('clear-preferences').addEventListener('click', () => {
-    remove(OPTIONS_KEY); state.symbol = 'BTCUSDT'; state.interval = '15m'; state.range = '1D'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all';
+    remove(OPTIONS_KEY); state.symbol = 'BTCUSDT'; state.interval = '15m'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all';
     clearResearch(); $('privacy-status').textContent = '已清除本站圖表偏好並恢復預設。外部資料同意狀態維持不變。'; renderWidgets();
   });
   document.querySelectorAll('[data-symbol]').forEach(button => button.addEventListener('click', () => {
@@ -444,7 +438,6 @@
   }));
   document.querySelectorAll('[data-market-filter]').forEach(button => button.addEventListener('click', () => { state.marketFilter = button.dataset.marketFilter; saveOptions(); updateControls(); }));
   document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval) && state.interval !== button.dataset.interval) { state.interval = button.dataset.interval; clearResearch(); applyChartOptions(); } }));
-  document.querySelectorAll('[data-range]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(RANGES, button.dataset.range)) { state.range = button.dataset.range; applyChartOptions(); } }));
   $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); } });
   $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; if (!state.researchConsent) clearResearch(); else updateControls(); });
   $('ai-debate').addEventListener('change', clearResearch);
