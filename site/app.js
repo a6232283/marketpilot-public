@@ -64,7 +64,8 @@
     serviceReady: false,
     serviceChecked: false,
     sharedAi: false,
-    keySource: 'shared'
+    keySource: 'shared',
+    analysisMode: 'standard'
   };
   const slots = new Map();
   let renderTimer;
@@ -119,12 +120,15 @@
       button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
     });
     $('research-consent').checked = state.researchConsent;
+    $('analysis-mode').value = state.analysisMode;
+    $('analysis-mode').disabled = state.busy;
+    $('ai-debate').disabled = state.analysisMode === 'agents' || state.busy;
     const ownKey = $('own-api-key').value.trim();
     const keyReady = state.keySource === 'own' ? /^[A-Za-z0-9._~-]{20,256}$/.test(ownKey) : state.sharedAi;
     $('own-key-fields').hidden = state.keySource !== 'own';
     document.querySelectorAll('input[name="gemini-source"]').forEach(input => { input.checked = input.value === state.keySource; });
     $('run-analysis').disabled = state.busy || !state.researchConsent || !state.serviceReady || !keyReady;
-    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : !state.serviceReady ? '公開研究服務尚不可用' : !keyReady && state.keySource === 'own' ? '請輸入有效的 Gemini API key' : !keyReady ? '站方額度尚未啟用' : 'AI 深度評估 ↗';
+    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : !state.serviceReady ? '公開研究服務尚不可用' : !keyReady && state.keySource === 'own' ? '請輸入有效的 Gemini API key' : !keyReady ? '站方額度尚未啟用' : state.analysisMode === 'agents' ? '執行多角色研究 ↗' : 'AI 深度評估 ↗';
     if (!configuredApi) {
       $('service-state').textContent = '公開研究服務部署中'; setTone($('service-state'), 'neutral');
       $('analysis-status').textContent = '服務尚未設定'; setTone($('analysis-status'), 'neutral');
@@ -297,7 +301,21 @@
       });
       details.append(grid); wrap.append(details);
     }
-    const meta = element('p', 'analysis-meta', '透明規則：' + actionText(result.ruleAction) + ' · 事件風險：' + (result.eventRisk || 'UNKNOWN') + ' · 已收盤 K 線：' + formatTime(market.barEndTime) + ' · 報價：' + formatTime(market.quoteTime));
+    if (data.committee?.enabled) {
+      const team = data.committee;
+      const details = element('details', 'analysis-list'); details.open = true;
+      details.append(element('summary', '', 'TradingAgents 流程精簡版 · ' + team.calls + ' 次模型呼叫'));
+      const grid = element('div', 'debate-grid');
+      [['技術分析員', team.market], ['事件分析員', team.news], ['多方研究員', team.bull], ['空方研究員', team.bear]].forEach(([name, item]) => {
+        const card = element('div', 'debate-card');
+        card.append(element('strong', '', name), element('p', '', item?.thesis || '資料不足'), element('small', '', '反證：' + (item?.counterpoint || '資料不足')));
+        grid.append(card);
+      });
+      details.append(grid, element('p', '', '風控審核：' + actionText(team.judge?.action) + ' · ' + (team.judge?.summary || '未產生結論。')),
+        element('small', '', '同一模型分角色審查；不含未提供的基本面、社群或個人持倉資料，並非原版 TradingAgents 框架。'));
+      wrap.append(details);
+    }
+    const meta = element('p', 'analysis-meta', (data.mode === 'agents' ? '多角色研究' : '標準研究') + ' · 透明規則：' + actionText(result.ruleAction) + ' · 事件風險：' + (result.eventRisk || 'UNKNOWN') + ' · 已收盤 K 線：' + formatTime(market.barEndTime) + ' · 報價：' + formatTime(market.quoteTime));
     wrap.append(meta); root.append(wrap);
     $('analysis-status').textContent = actionText(action); setTone($('analysis-status'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
     $('metric-ai').textContent = actionText(action); setTone($('metric-ai'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
@@ -323,11 +341,12 @@
   function drawStrategy(market, assessment, generatedAt) {
     const current = Number(market.price);
     const levels = market.levels;
+    const daily = market.dailyLevels;
     const action = assessment.action || 'WAIT';
     const chart = $('strategy-svg'); chart.replaceChildren();
     chart.setAttribute('aria-label', '公開研究的條件式策略走線');
     chart.append(svg('rect', { width: 1000, height: 260, fill: '#111923' }));
-    const values = levels ? [levels.entryLow, levels.entryHigh, levels.invalidation, levels.targetOne, levels.targetTwo, current] : [market.scenarios?.lower, market.scenarios?.middle, market.scenarios?.upper, current];
+    const values = [...(levels ? [levels.entryLow, levels.entryHigh, levels.invalidation, levels.targetOne, levels.targetTwo, current] : [market.scenarios?.lower, market.scenarios?.middle, market.scenarios?.upper, current]), daily?.support, daily?.resistance];
     const numbers = values.map(Number).filter(Number.isFinite);
     if (!numbers.length) return;
     const lower = Math.min(...numbers); const upper = Math.max(...numbers); const padding = Math.max((upper - lower) * .18, Math.abs(current) * .005 || 1);
@@ -336,6 +355,15 @@
     for (let index = 0; index < 5; index += 1) {
       const yy = 38 + index * 43; chart.append(svg('line', { x1: 84, y1: yy, x2: 950, y2: yy, stroke: '#243343', 'stroke-width': 1 }));
       const label = svg('text', { x: 73, y: yy + 4, 'text-anchor': 'end', fill: '#72889e', 'font-size': 11 }); label.textContent = formatNumber(high - (high - low) * index / 4, market.currency).replace(' ' + market.currency, ''); chart.append(label);
+    }
+    if (daily) {
+      [['20 日壓力', daily.resistance, '#ee9aa9', -8], ['20 日支撐', daily.support, '#80d4a7', 15]].forEach(([label, value, color, offset]) => {
+        const yy = y(Number(value));
+        chart.append(svg('line', { x1: 98, y1: yy, x2: 942, y2: yy, stroke: color, 'stroke-width': 1.5, 'stroke-dasharray': '6 5', opacity: .85 }));
+        const note = svg('text', { x: 590, y: yy + offset, fill: color, 'font-size': 11 });
+        note.textContent = label + ' ' + formatNumber(value, market.currency);
+        chart.append(note);
+      });
     }
     const currentY = y(current);
     drawLine(chart, [[98, currentY], [330, currentY]], '#99c9ff');
@@ -368,6 +396,12 @@
       card.append(element('span', '', label), element('strong', '', display), element('small', '', note)); cards.append(card);
     };
     addCard('參考價', current, '資料快照', '');
+    if (daily) {
+      addCard('20 日支撐', daily.support, daily.basis + ' · ' + formatTime(daily.lastBarTime), 'support');
+      addCard('20 日壓力', daily.resistance, daily.basis + ' · ' + formatTime(daily.lastBarTime), 'resistance');
+    } else {
+      addCard('20 日支撐／壓力', '暫無完整日線', '來源不足或日線尚未完成，不以分鐘 K 線替代。', '');
+    }
     if (levels && action !== 'WAIT') {
       addCard('觀察區', String(formatNumber(levels.entryLow, market.currency) + ' – ' + formatNumber(levels.entryHigh, market.currency)), '需先確認行情與交易成本', 'entry');
       addCard('條件目標一', levels.targetOne, '非保證賣出價格', 'target');
@@ -414,20 +448,20 @@
     if (state.keySource === 'shared' && !state.sharedAi) { $('analysis-error').textContent = '站方 AI 額度尚未啟用，請選擇自備金鑰。'; return; }
     const request = ++state.researchRequest;
     const controller = new AbortController();
-    const symbol = state.symbol, interval = state.interval, debate = $('ai-debate').checked;
+    const symbol = state.symbol, interval = state.interval, mode = state.analysisMode, debate = mode === 'standard' && $('ai-debate').checked;
     state.researchAbort = controller;
-    const timeout = setTimeout(() => controller.abort(), debate ? 145000 : 80000);
+    const timeout = setTimeout(() => controller.abort(), mode === 'agents' ? 190000 : debate ? 145000 : 80000);
     state.busy = true;
     state.researchStartedAt = performance.now();
     const progress = $('analysis-progress');
-    const updateProgress = () => { progress.textContent = '研究請求已送出 · 已等待 ' + Math.floor((performance.now() - state.researchStartedAt) / 1000) + ' 秒' + (debate ? ' · 多空辯論需 3 次模型回應' : ''); };
+    const updateProgress = () => { progress.textContent = '研究請求已送出 · 已等待 ' + Math.floor((performance.now() - state.researchStartedAt) / 1000) + ' 秒' + (mode === 'agents' ? ' · 多角色研究需 5 次模型回應' : debate ? ' · 多空辯論需 3 次模型回應' : ''); };
     progress.hidden = false;
     updateProgress();
     state.researchTimer = setInterval(updateProgress, 1000);
     updateControls();
     $('analysis-status').textContent = '研究處理中'; setTone($('analysis-status'), 'neutral');
     try {
-      const body = { symbol, interval, debate };
+      const body = { symbol, interval, mode, debate };
       if (apiKey !== null) body.apiKey = apiKey;
       const result = await callResearch('/v1/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
       if (request !== state.researchRequest || symbol !== state.symbol || interval !== state.interval) return;
@@ -480,6 +514,7 @@
   $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); } });
   $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; if (!state.researchConsent) clearResearch(); else updateControls(); });
   $('ai-debate').addEventListener('change', clearResearch);
+  $('analysis-mode').addEventListener('change', () => { state.analysisMode = $('analysis-mode').value === 'agents' ? 'agents' : 'standard'; clearResearch(); });
   document.querySelectorAll('input[name="gemini-source"]').forEach(input => input.addEventListener('change', () => {
     if (!input.checked) return;
     state.keySource = input.value === 'own' ? 'own' : 'shared';

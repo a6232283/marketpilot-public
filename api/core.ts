@@ -30,6 +30,7 @@ export const INTERVAL_SECONDS = Object.freeze({ '5m': 300, '15m': 900, '30m': 18
 export type Asset = (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS];
 export type Interval = keyof typeof INTERVALS;
 export type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
+export type ResearchMode = 'standard' | 'agents';
 
 export class PublicError extends Error {
   status: number;
@@ -72,6 +73,9 @@ export function normalizeResearchRequest(value: unknown) {
   if (record.debate !== undefined && typeof record.debate !== 'boolean') {
     throw new PublicError('多空辯論設定格式不正確。');
   }
+  const mode = record.mode === undefined ? 'standard' : record.mode;
+  if (mode !== 'standard' && mode !== 'agents') throw new PublicError('AI 研究模式不正確。');
+  if (mode === 'agents' && record.debate === true) throw new PublicError('多角色研究已包含多空辯論，請關閉額外辯論。');
   let apiKey: string | null = null;
   if (record.apiKey !== undefined) {
     if (typeof record.apiKey !== 'string' || !/^[A-Za-z0-9._~-]{20,256}$/.test(record.apiKey)) {
@@ -79,7 +83,7 @@ export function normalizeResearchRequest(value: unknown) {
     }
     apiKey = record.apiKey;
   }
-  return { symbol, asset, interval: interval as Interval, debate: record.debate === true, apiKey };
+  return { symbol, asset, interval: interval as Interval, mode: mode as ResearchMode, debate: record.debate === true, apiKey };
 }
 
 export function cleanBars(rows: unknown[]) {
@@ -107,6 +111,23 @@ export function completedBars(rows: unknown[], interval: Interval, nowSeconds: n
     const end = Number.isFinite(sessionEnd) && sessionEnd! > bar.time && sessionEnd! < regularClose ? sessionEnd! : regularClose;
     return end <= cutoff;
   });
+}
+
+export function twentyDayLevels(rows: unknown[], price: number, kind: 'crypto' | 'stock', nowSeconds: number, exchangeZone = 'Etc/UTC', sessionEnd?: number) {
+  const day = (stamp: number) => {
+    try { return new Intl.DateTimeFormat('en-CA', { timeZone: exchangeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(stamp * 1000)); }
+    catch { return new Date(stamp * 1000).toISOString().slice(0, 10); }
+  };
+  const today = day(nowSeconds);
+  const completed = cleanBars(rows).filter(bar => {
+    if (kind === 'crypto') return bar.time + 86_400 <= nowSeconds - 2;
+    if (day(bar.time) !== today) return true;
+    return Number.isFinite(sessionEnd) && nowSeconds >= sessionEnd! + 300;
+  });
+  if (completed.length < 20 || nowSeconds - completed.at(-1)!.time > 10 * 86_400) return null;
+  const recent = completed.slice(-20);
+  return { support: rounded(Math.min(...recent.map(bar => bar.low)), price), resistance: rounded(Math.max(...recent.map(bar => bar.high)), price),
+    firstBarTime: recent[0].time, lastBarTime: recent.at(-1)!.time, count: 20, basis: kind === 'crypto' ? '最近 20 根已收盤 UTC 日 K' : '最近 20 根已完成交易日 K' };
 }
 
 export function recentFlashes<T extends { published: number }>(items: T[], nowSeconds: number, maximumAgeSeconds = 24 * 3600) {
