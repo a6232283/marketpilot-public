@@ -390,7 +390,7 @@
     const controller = new AbortController();
     const symbol = state.symbol, interval = state.interval, debate = $('ai-debate').checked;
     state.researchAbort = controller;
-    const timeout = setTimeout(() => controller.abort(), debate ? 120000 : 50000);
+    const timeout = setTimeout(() => controller.abort(), debate ? 145000 : 80000);
     state.busy = true; updateControls();
     $('analysis-status').textContent = '研究處理中'; setTone($('analysis-status'), 'neutral');
     try {
