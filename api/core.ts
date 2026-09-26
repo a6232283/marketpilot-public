@@ -25,6 +25,8 @@ export const INTERVALS = Object.freeze({
   '1h': { crypto: '1h', stock: '1h', label: '1 小時' }
 });
 
+export const INTERVAL_SECONDS = Object.freeze({ '5m': 300, '15m': 900, '30m': 1800, '1h': 3600 });
+
 export type Asset = (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS];
 export type Interval = keyof typeof INTERVALS;
 export type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
@@ -95,6 +97,22 @@ export function cleanBars(rows: unknown[]) {
     byTime.set(Math.trunc(time!), { time: Math.trunc(time!), open: open!, high: high!, low: low!, close: close!, volume: volume! });
   }
   return [...byTime.values()].sort((left, right) => left.time - right.time);
+}
+
+export function completedBars(rows: unknown[], interval: Interval, nowSeconds: number, sessionEnd?: number) {
+  const step = INTERVAL_SECONDS[interval];
+  const cutoff = Math.floor(nowSeconds) - 2;
+  return cleanBars(rows).filter(bar => {
+    const regularClose = bar.time + step;
+    const end = Number.isFinite(sessionEnd) && sessionEnd! > bar.time && sessionEnd! < regularClose ? sessionEnd! : regularClose;
+    return end <= cutoff;
+  });
+}
+
+export function recentFlashes<T extends { published: number }>(items: T[], nowSeconds: number, maximumAgeSeconds = 24 * 3600) {
+  const cutoff = nowSeconds - maximumAgeSeconds;
+  return items.filter(item => Number.isFinite(item.published) && item.published >= cutoff && item.published <= nowSeconds + 120)
+    .sort((left, right) => right.published - left.published).slice(0, MAX_NEWS_ITEMS);
 }
 
 function ema(values: number[], period: number) {
