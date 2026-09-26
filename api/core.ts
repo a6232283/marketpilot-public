@@ -1,8 +1,8 @@
 /**
  * Pure, provider-independent logic for the public Deno research service.
  * It deliberately accepts only the fixed public asset universe and never
- * accepts a visitor-provided URL, model name, tool name, credential, account,
- * or trading instruction.
+ * accepts a visitor-provided URL, model name, tool name, account, or trading
+ * instruction. A visitor may provide one Gemini key for the current request.
  */
 
 export const MAX_NEWS_ITEMS = 6;
@@ -70,7 +70,14 @@ export function normalizeResearchRequest(value: unknown) {
   if (record.debate !== undefined && typeof record.debate !== 'boolean') {
     throw new PublicError('多空辯論設定格式不正確。');
   }
-  return { symbol, asset, interval: interval as Interval, debate: record.debate === true };
+  let apiKey: string | null = null;
+  if (record.apiKey !== undefined) {
+    if (typeof record.apiKey !== 'string' || !/^[A-Za-z0-9._~-]{20,256}$/.test(record.apiKey)) {
+      throw new PublicError('自備 Gemini API key 格式不正確。');
+    }
+    apiKey = record.apiKey;
+  }
+  return { symbol, asset, interval: interval as Interval, debate: record.debate === true, apiKey };
 }
 
 export function cleanBars(rows: unknown[]) {

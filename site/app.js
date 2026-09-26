@@ -1,4 +1,4 @@
-/* Public UI: no credentials, local service routes, account data, or trading controls. */
+/* Public UI: visitor Gemini keys stay in a password field until a research request. */
 'use strict';
 (() => {
   const CONSENT_KEY = 'marketpilot.public.external.v2';
@@ -60,7 +60,9 @@
     researchRequest: 0,
     researchAbort: null,
     serviceReady: false,
-    serviceChecked: false
+    serviceChecked: false,
+    sharedAi: false,
+    keySource: 'shared'
   };
   const slots = new Map();
   let renderTimer;
@@ -115,8 +117,12 @@
       button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
     });
     $('research-consent').checked = state.researchConsent;
-    $('run-analysis').disabled = state.busy || !state.researchConsent || !state.serviceReady;
-    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : state.serviceReady ? 'AI 深度評估 ↗' : '公開研究服務尚不可用';
+    const ownKey = $('own-api-key').value.trim();
+    const keyReady = state.keySource === 'own' ? /^[A-Za-z0-9._~-]{20,256}$/.test(ownKey) : state.sharedAi;
+    $('own-key-fields').hidden = state.keySource !== 'own';
+    document.querySelectorAll('input[name="gemini-source"]').forEach(input => { input.checked = input.value === state.keySource; });
+    $('run-analysis').disabled = state.busy || !state.researchConsent || !state.serviceReady || !keyReady;
+    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : !state.serviceReady ? '公開研究服務尚不可用' : !keyReady && state.keySource === 'own' ? '請輸入有效的 Gemini API key' : !keyReady ? '站方額度尚未啟用' : 'AI 深度評估 ↗';
     if (!configuredApi) {
       $('service-state').textContent = '公開研究服務部署中'; setTone($('service-state'), 'neutral');
       $('analysis-status').textContent = '服務尚未設定'; setTone($('analysis-status'), 'neutral');
@@ -378,7 +384,8 @@
       const answer = await fetch(configuredApi + '/v1/status', { mode: 'cors', credentials: 'omit', cache: 'no-store', signal: controller.signal });
       const status = answer.ok ? await answer.json() : {};
       state.serviceReady = answer.ok && status.ready === true;
-    } catch { state.serviceReady = false; }
+      state.sharedAi = status.ai === true;
+    } catch { state.serviceReady = false; state.sharedAi = false; }
     finally { clearTimeout(timeout); state.serviceChecked = true; updateControls(); }
   }
 
@@ -386,6 +393,9 @@
     $('analysis-error').textContent = '';
     if (!state.researchConsent) { $('analysis-error').textContent = '請先確認研究資料的使用方式。'; return; }
     if (!state.serviceReady) { $('analysis-error').textContent = '公開研究服務尚未就緒，請稍後再試。'; return; }
+    const apiKey = state.keySource === 'own' ? $('own-api-key').value.trim() : null;
+    if (state.keySource === 'own' && !/^[A-Za-z0-9._~-]{20,256}$/.test(apiKey)) { $('analysis-error').textContent = '請輸入有效的 Gemini API key。'; return; }
+    if (state.keySource === 'shared' && !state.sharedAi) { $('analysis-error').textContent = '站方 AI 額度尚未啟用，請選擇自備金鑰。'; return; }
     const request = ++state.researchRequest;
     const controller = new AbortController();
     const symbol = state.symbol, interval = state.interval, debate = $('ai-debate').checked;
@@ -394,7 +404,9 @@
     state.busy = true; updateControls();
     $('analysis-status').textContent = '研究處理中'; setTone($('analysis-status'), 'neutral');
     try {
-      const result = await callResearch('/v1/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, interval, debate }), signal: controller.signal });
+      const body = { symbol, interval, debate };
+      if (apiKey !== null) body.apiKey = apiKey;
+      const result = await callResearch('/v1/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
       if (request !== state.researchRequest || symbol !== state.symbol || interval !== state.interval) return;
       if (result.market?.symbol !== symbol || result.market?.interval !== interval) throw new Error('研究結果與目前標的或週期不符，請重新執行。');
       state.lastResearch = result; renderAnalysis(result);
@@ -441,6 +453,15 @@
   $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); } });
   $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; if (!state.researchConsent) clearResearch(); else updateControls(); });
   $('ai-debate').addEventListener('change', clearResearch);
+  document.querySelectorAll('input[name="gemini-source"]').forEach(input => input.addEventListener('change', () => {
+    if (!input.checked) return;
+    state.keySource = input.value === 'own' ? 'own' : 'shared';
+    clearResearch();
+    if (state.keySource === 'own') $('own-api-key').focus();
+  }));
+  $('own-api-key').addEventListener('input', () => { if (state.lastResearch || state.busy) clearResearch(); else updateControls(); });
+  $('clear-own-key').addEventListener('click', () => { $('own-api-key').value = ''; clearResearch(); $('own-api-key').focus(); });
+  window.addEventListener('pagehide', () => { $('own-api-key').value = ''; });
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);
   document.querySelectorAll('[data-dialog]').forEach(button => button.addEventListener('click', () => $(button.dataset.dialog).showModal()));
