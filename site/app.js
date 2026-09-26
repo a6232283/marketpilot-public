@@ -9,14 +9,14 @@
   const RANGES = Object.freeze({ '1D': '1D', '1W': '1W', '1M': '1M', '3M': '3M', '1Y': '1Y' });
   const ZONES = Object.freeze(['Asia/Taipei', 'Etc/UTC', 'exchange']);
   const ASSETS = Object.freeze({
-    BTCUSDT: { name: 'Bitcoin', badge: 'BTC / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:BTCUSDT', kind: 'crypto', currency: 'USDT' },
-    ETHUSDT: { name: 'Ethereum', badge: 'ETH / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:ETHUSDT', kind: 'crypto', currency: 'USDT' },
-    SOLUSDT: { name: 'Solana', badge: 'SOL / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:SOLUSDT', kind: 'crypto', currency: 'USDT' },
-    NVDA: { name: 'NVIDIA', badge: 'NVDA', market: 'NASDAQ · 美國股票', chart: 'NASDAQ:NVDA', kind: 'stock', currency: 'USD' },
-    AAPL: { name: 'Apple', badge: 'AAPL', market: 'NASDAQ · 美國股票', chart: 'NASDAQ:AAPL', kind: 'stock', currency: 'USD' },
-    '2330.TW': { name: '台積電', badge: '2330', market: 'TWSE · 台灣股票', chart: 'TWSE:2330', kind: 'stock', currency: 'TWD' },
-    '0700.HK': { name: '騰訊控股', badge: '0700', market: 'HKEX · 香港股票', chart: 'HKEX:700', kind: 'stock', currency: 'HKD' },
-    '7203.T': { name: '豐田汽車', badge: '7203', market: 'TSE · 日本股票', chart: 'TSE:7203', kind: 'stock', currency: 'JPY' }
+    BTCUSDT: { name: 'Bitcoin', badge: 'BTC / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:BTCUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
+    ETHUSDT: { name: 'Ethereum', badge: 'ETH / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:ETHUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
+    SOLUSDT: { name: 'Solana', badge: 'SOL / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:SOLUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
+    NVDA: { name: 'NVIDIA', badge: 'NVDA', market: 'NASDAQ · 美國股票', chart: 'NASDAQ:NVDA', kind: 'stock', currency: 'USD', zone: 'America/New_York' },
+    AAPL: { name: 'Apple', badge: 'AAPL', market: 'NASDAQ · 美國股票', chart: 'NASDAQ:AAPL', kind: 'stock', currency: 'USD', zone: 'America/New_York' },
+    '2330.TW': { name: '台積電', badge: '2330', market: 'TWSE · 台灣股票', chart: 'TWSE:2330', kind: 'stock', currency: 'TWD', zone: 'Asia/Taipei' },
+    '0700.HK': { name: '騰訊控股', badge: '0700', market: 'HKEX · 香港股票', chart: 'HKEX:700', kind: 'stock', currency: 'HKD', zone: 'Asia/Hong_Kong' },
+    '7203.T': { name: '豐田汽車', badge: '7203', market: 'TSE · 日本股票', chart: 'TSE:7203', kind: 'stock', currency: 'JPY', zone: 'Asia/Tokyo' }
   });
   const PROVIDER_SCRIPTS = Object.freeze({
     chart: 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js',
@@ -58,7 +58,11 @@
     marketFilter: ['all', 'crypto', 'stock'].includes(saved.marketFilter) ? saved.marketFilter : 'all',
     researchConsent: false,
     busy: false,
-    lastResearch: null
+    lastResearch: null,
+    researchRequest: 0,
+    researchAbort: null,
+    serviceReady: false,
+    serviceChecked: false
   };
   const slots = new Map();
   let renderTimer;
@@ -78,7 +82,7 @@
   function formatTime(value) {
     const stamp = Number(value);
     if (!Number.isFinite(stamp) || stamp <= 0) return '等待資料';
-    try { return new Intl.DateTimeFormat('zh-TW', { dateStyle: 'short', timeStyle: 'medium', timeZone: state.timezone === 'exchange' ? undefined : state.timezone }).format(new Date(stamp * 1000)); } catch { return new Date(stamp * 1000).toLocaleString(); }
+    try { return new Intl.DateTimeFormat('zh-TW', { dateStyle: 'short', timeStyle: 'medium', timeZone: state.timezone === 'exchange' ? asset().zone : state.timezone }).format(new Date(stamp * 1000)); } catch { return '時間格式暫不可用'; }
   }
   function setTone(node, tone) {
     node.classList.remove('up', 'down', 'neutral', 'long', 'short', 'wait', 'ready', 'error');
@@ -117,14 +121,39 @@
       button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
     });
     $('research-consent').checked = state.researchConsent;
-    $('run-analysis').disabled = state.busy || !state.researchConsent || !configuredApi;
-    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : configuredApi ? 'AI 深度評估 ↗' : '公開研究服務部署中';
+    $('run-analysis').disabled = state.busy || !state.researchConsent || !state.serviceReady;
+    $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : state.serviceReady ? 'AI 深度評估 ↗' : '公開研究服務尚不可用';
     if (!configuredApi) {
       $('service-state').textContent = '公開研究服務部署中'; setTone($('service-state'), 'neutral');
       $('analysis-status').textContent = '服務尚未設定'; setTone($('analysis-status'), 'neutral');
-    } else if (!state.busy && !state.lastResearch) {
+    } else if (!state.serviceChecked) {
+      $('service-state').textContent = '研究服務檢查中'; setTone($('service-state'), 'neutral');
+    } else if (!state.serviceReady) {
+      $('service-state').textContent = '研究服務暫不可用'; setTone($('service-state'), 'error');
+    } else {
       $('service-state').textContent = '公開研究服務可使用'; setTone($('service-state'), 'ready');
     }
+  }
+
+  function clearResearch() {
+    state.researchRequest += 1;
+    state.researchAbort?.abort();
+    state.researchAbort = null;
+    state.busy = false;
+    state.lastResearch = null;
+    $('analysis').replaceChildren(element('div', 'analysis-empty', '請依目前標的與 K 線週期重新執行 AI 深度評估。'));
+    $('analysis-error').textContent = '';
+    $('analysis-status').textContent = '等待新評估'; setTone($('analysis-status'), 'neutral');
+    $('metric-price').textContent = '—'; $('metric-source').textContent = '執行研究後顯示來源與時間'; $('metric-freshness').textContent = '等待資料';
+    $('metric-rule').textContent = '等待評估'; setTone($('metric-rule'), 'neutral'); $('metric-score').textContent = '未產生分數';
+    $('metric-ai').textContent = '待啟動'; setTone($('metric-ai'), 'neutral'); $('metric-ai-detail').textContent = '不公開 API key';
+    $('metric-news').textContent = '待確認'; setTone($('metric-news'), 'neutral'); $('metric-news-detail').textContent = '不重製快訊全文';
+    $('strategy-svg').replaceChildren(svg('rect', { width: 1000, height: 260, fill: '#111923' }));
+    $('strategy-badge').textContent = '等待研究'; setTone($('strategy-badge'), 'neutral');
+    $('strategy-message').textContent = '依目前標的與週期重新研究後，才會顯示對應的條件走線。';
+    $('strategy-cards').replaceChildren(element('div', 'strategy-no-plan', '目前沒有對應這個標的與週期的策略價位。'));
+    $('strategy-time').textContent = '尚無研究時間';
+    updateControls();
   }
 
   function widgetError(root, kind, detail) {
