@@ -5,9 +5,13 @@
     "test": "deno test --allow-env --allow-read --allow-write core_test.ts main_test.ts"
   },
   "deploy": {
-    "org": "a6232283"
+    "org": "a6232283",
+    "app": "marketpilot-a6232283"
   }
 }
+
+
+
 
 
 
