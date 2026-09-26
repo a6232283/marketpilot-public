@@ -188,7 +188,7 @@ function stripMarkup(value: unknown) {
   return clampText(String(value || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' '), 720);
 }
 
-async function mcpCall(session: { id: string; protocol: string }, id: number, method: string, params: JsonRecord, notification = false) {
+async function mcpCall(session: { id: string; protocol: string }, id: number, method: string, params: JsonRecord, notification = false, signal = AbortSignal.timeout(12_000)) {
   const token = setting('JIN10_MCP_TOKEN');
   if (!token) throw new PublicError('金十公開研究來源尚未完成設定。', 503);
   const headers = new Headers({
@@ -202,7 +202,7 @@ async function mcpCall(session: { id: string; protocol: string }, id: number, me
   if (!notification) payload.id = id;
   let answer: Response;
   try {
-    answer = await fetch(MCP_ENDPOINT, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(12_000) });
+    answer = await fetch(MCP_ENDPOINT, { method: 'POST', headers, body: JSON.stringify(payload), signal });
   } catch {
     throw new PublicError('金十資料來源暫時無法連線。', 502);
   }
@@ -228,15 +228,16 @@ async function jin10Flashes(): Promise<Flashes> {
   if (!setting('JIN10_MCP_TOKEN')) return { available: false, fetchedAt: 0, items: [] };
   const seconds = asPositiveInt(setting('JIN10_CACHE_SECONDS'), 120, 60, 900);
   return await cached('jin10/list-flash', seconds, async () => {
+    const signal = AbortSignal.timeout(25_000);
     const session = { id: '', protocol: '2025-11-25' };
     let id = 1;
-    const initialized = await mcpCall(session, id++, 'initialize', { protocolVersion: session.protocol, capabilities: {}, clientInfo: { name: SERVICE_NAME, version: '1.0' } });
+    const initialized = await mcpCall(session, id++, 'initialize', { protocolVersion: session.protocol, capabilities: {}, clientInfo: { name: SERVICE_NAME, version: '1.0' } }, false, signal);
     if (typeof initialized.protocolVersion === 'string') session.protocol = initialized.protocolVersion;
-    await mcpCall(session, id++, 'notifications/initialized', {}, true);
+    await mcpCall(session, id++, 'notifications/initialized', {}, true, signal);
     let cursor = '';
     let toolAvailable = false;
     for (let page = 0; page < 5; page += 1) {
-      const result = await mcpCall(session, id++, 'tools/list', cursor ? { cursor } : {});
+      const result = await mcpCall(session, id++, 'tools/list', cursor ? { cursor } : {}, false, signal);
       if (Array.isArray(result.tools) && result.tools.some(tool => tool && typeof tool === 'object' && (tool as JsonRecord).name === 'list_flash')) {
         toolAvailable = true;
         break;
@@ -245,7 +246,7 @@ async function jin10Flashes(): Promise<Flashes> {
       if (!cursor) break;
     }
     if (!toolAvailable) throw new PublicError('金十公開研究來源目前沒有可用快訊工具。', 503);
-    const result = await mcpCall(session, id++, 'tools/call', { name: 'list_flash', arguments: {} });
+    const result = await mcpCall(session, id++, 'tools/call', { name: 'list_flash', arguments: {} }, false, signal);
     const structured = result.structuredContent && typeof result.structuredContent === 'object' && !Array.isArray(result.structuredContent)
       ? result.structuredContent as JsonRecord
       : Array.isArray(result.content) ? result.content.map(item => {
@@ -284,7 +285,7 @@ async function geminiJSON(prompt: string, schema: unknown) {
   let answer: Response;
   try {
     answer = await fetch(GEMINI_ENDPOINT + encodeURIComponent(safeModel(setting('GEMINI_MODEL'))) + ':generateContent', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000)
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(25_000)
     });
   } catch {
     throw new PublicError('AI 服務暫時無法連線。', 502);
@@ -336,10 +337,13 @@ async function consume(key: Deno.KvKey, maximum: number, windowMs: number, cost:
   throw new PublicError('公開服務的請求限制暫時無法確認。', 503);
 }
 
-async function protectResearch(request: Request, debate: boolean) {
+async function protectResearch(request: Request) {
   const identity = await hashClient(request);
   const visitor = asPositiveInt(setting('MAX_REQUESTS_PER_10_MINUTES'), 3, 1, 10);
   await consume(['marketpilot', 'rate', 'visitor', identity, Math.floor(Date.now() / 600_000)], visitor, 10 * 60 * 1000, 1);
+}
+
+async function reserveAI(debate: boolean) {
   const daily = asPositiveInt(setting('MAX_PUBLIC_AI_CALLS_PER_DAY'), 48, 1, 480);
   await consume(['marketpilot', 'rate', 'daily', new Date().toISOString().slice(0, 10)], daily, 26 * 60 * 60 * 1000, debate ? 3 : 1);
 }
@@ -362,7 +366,7 @@ function sourceStatus() {
 
 async function research(request: Request) {
   const input = normalizeResearchRequest(await readJSON(request));
-  await protectResearch(request, input.debate);
+  await protectResearch(request);
   const market = await marketSnapshot(input.symbol, input.asset, input.interval);
   const technical = technicalAssessment(market.bars, { ...input.asset, symbol: input.symbol }, input.interval, market.price);
   let flashes: Flashes;
@@ -374,6 +378,7 @@ async function research(request: Request) {
   }
   const sourceIds = new Set(flashes.items.map(item => item.id));
   const base = aiPrompt(technical, flashes);
+  await reserveAI(input.debate);
   let ai: ReturnType<typeof validateAssessment>;
   let debate: { enabled: true; bull: ReturnType<typeof validateCase>; bear: ReturnType<typeof validateCase> } | null = null;
   if (input.debate) {
