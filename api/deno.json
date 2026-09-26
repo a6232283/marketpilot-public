@@ -3,5 +3,9 @@
   "tasks": {
     "check": "deno check main.ts",
     "test": "deno test --allow-env --allow-read --allow-write core_test.ts main_test.ts"
+  },
+  "deploy": {
+    "org": "a6232283"
   }
 }
+
