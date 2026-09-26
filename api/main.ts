@@ -125,7 +125,7 @@ async function readJSON(request: Request) {
 async function providerJSON(url: string, options: RequestInit = {}, limit = MAX_PROVIDER_BYTES) {
   let answer: Response;
   try {
-    answer = await fetch(url, options);
+    answer = await fetch(url, { ...options, signal: AbortSignal.timeout(12_000) });
   } catch {
     throw new PublicError('資料來源暫時無法連線。', 502);
   }
@@ -202,7 +202,7 @@ async function mcpCall(session: { id: string; protocol: string }, id: number, me
   if (!notification) payload.id = id;
   let answer: Response;
   try {
-    answer = await fetch(MCP_ENDPOINT, { method: 'POST', headers, body: JSON.stringify(payload) });
+    answer = await fetch(MCP_ENDPOINT, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(12_000) });
   } catch {
     throw new PublicError('金十資料來源暫時無法連線。', 502);
   }
@@ -284,7 +284,7 @@ async function geminiJSON(prompt: string, schema: unknown) {
   let answer: Response;
   try {
     answer = await fetch(GEMINI_ENDPOINT + encodeURIComponent(safeModel(setting('GEMINI_MODEL'))) + ':generateContent', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body)
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000)
     });
   } catch {
     throw new PublicError('AI 服務暫時無法連線。', 502);
@@ -404,7 +404,10 @@ export async function handler(request: Request) {
       return new Response(null, { status: 204, headers: headersFor(request) });
     }
     if (!sameOrigin(request)) return response(request, { error: '來源未獲允許。' }, 403);
-    if (url.pathname === '/v1/status' && request.method === 'GET') return response(request, sourceStatus());
+    if (url.pathname === '/v1/status' && request.method === 'GET') {
+      await database();
+      return response(request, sourceStatus());
+    }
     if (url.pathname === '/v1/news' && request.method === 'GET') {
       await protectNews(request);
       const flashes = await jin10Flashes();
