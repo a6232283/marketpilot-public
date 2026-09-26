@@ -172,6 +172,46 @@ function rounded(value: number, price: number) {
   return Number(value.toFixed(priceDecimals(price)));
 }
 
+// Independent, bounded price-action lens. Only completed, ordered bars reach
+// this function; it does not import PA_Agent code or its prompt library.
+export function priceActionDiagnosis(bars: Bar[], atrValue: number) {
+  if (bars.length < 42 || !Number.isFinite(atrValue) || atrValue <= 0) {
+    return { gate: 'WAIT', regime: 'unknown', breakout: 'none', reason: '完整 K 線或波動資料不足。' };
+  }
+  const recent = bars.slice(-41);
+  const last = recent.at(-1)!;
+  const prior = recent.slice(-21, -1);
+  const ceiling = Math.max(...prior.map(bar => bar.high));
+  const floor = Math.min(...prior.map(bar => bar.low));
+  const width = ceiling - floor;
+  if (width <= 0) return { gate: 'WAIT', regime: 'unknown', breakout: 'none', reason: '區間寬度無效。' };
+  const overlapValues = recent.slice(-11, -1).map((left, index) => {
+    const right = recent.slice(-10)[index];
+    const shared = Math.max(0, Math.min(left.high, right.high) - Math.max(left.low, right.low));
+    return shared / Math.max(Math.min(left.high - left.low, right.high - right.low), 1e-12);
+  });
+  const overlap = overlapValues.reduce((sum, value) => sum + value, 0) / overlapValues.length;
+  const move = (last.close - recent.at(-11)!.close) / atrValue;
+  const regime = overlap >= 0.70 && Math.abs(move) < 1.2 ? 'range' : move >= 1.2 ? 'up' : move <= -1.2 ? 'down' : 'transition';
+  const previous = recent.at(-2)!;
+  const older = recent.slice(-22, -2);
+  const olderHigh = Math.max(...older.map(bar => bar.high));
+  const olderLow = Math.min(...older.map(bar => bar.low));
+  const threshold = 0.1 * atrValue;
+  let breakout = 'none';
+  if (previous.close > olderHigh + threshold && last.close <= ceiling) breakout = 'failed_up';
+  else if (previous.close < olderLow - threshold && last.close >= floor) breakout = 'failed_down';
+  else if (last.close > ceiling + threshold) breakout = 'up';
+  else if (last.close < floor - threshold) breakout = 'down';
+  else if (last.high > ceiling + threshold && last.close <= ceiling) breakout = 'up_probe';
+  else if (last.low < floor - threshold && last.close >= floor) breakout = 'down_probe';
+  const gate = regime === 'range' || breakout.startsWith('failed_') ? 'WAIT' : 'REVIEW';
+  const reason = regime === 'range' ? 'K 線重疊偏高，暫停方向推論。' : breakout.startsWith('failed_') ? '突破後回到區間，等待重新確認。' : '結構僅供交叉檢查，不單獨形成進場訊號。';
+  return { gate, regime, breakout, rangePosition: Number(((last.close - floor) / width).toFixed(3)),
+    overlap10: Number(overlap.toFixed(3)), move10Atr: Number(move.toFixed(3)), rangeHigh: ceiling,
+    rangeLow: floor, barTime: last.time, reason };
+}
+
 export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string }, interval: Interval, quote: unknown) {
   const cleaned = cleanBars(bars);
   if (cleaned.length < 60) throw new PublicError('市場資料不足，暫不產生研究結論。', 502);
@@ -212,6 +252,7 @@ export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string
     ruleAction,
     score,
     confidence: Math.min(100, Math.round(Math.abs(score) / 4 * 100)),
+    priceAction: priceActionDiagnosis(cleaned, atr14!),
     indicators: {
       ema20: rounded(e20!, price), ema50: rounded(e50!, price), rsi14: Number(rsi14!.toFixed(1)), atr14: rounded(atr14!, price),
       momentum20: Number((momentum * 100).toFixed(2)), support20: rounded(Math.min(...cleaned.slice(-20).map(bar => bar.low)), price),
