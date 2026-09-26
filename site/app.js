@@ -42,7 +42,7 @@
     const raw = document.documentElement.dataset.apiBase || '';
     try {
       const value = new URL(raw);
-      return value.protocol === 'https:' && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.]deno[.]dev$/i.test(value.hostname) ? value.origin : '';
+      return value.protocol === 'https:' && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.]){1,2}deno[.](?:dev|net)$/i.test(value.hostname) ? value.origin : '';
     } catch { return ''; }
   })();
   let saved = {};
