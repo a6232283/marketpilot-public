@@ -140,18 +140,18 @@ async function providerJSON(url: string, options: RequestInit = {}, limit = MAX_
   }
 }
 
-async function cached<T>(name: string, seconds: number, factory: () => Promise<T>) {
+async function cached<T>(name: string, seconds: number, factory: () => Promise<T>, force = false) {
   const kv = await database();
   const key: Deno.KvKey = ['marketpilot', 'cache', name];
   const hit = await kv.get<{ savedAt: number; value: T }>(key);
   const now = Date.now();
-  if (hit.value && Number.isFinite(hit.value.savedAt) && now - hit.value.savedAt <= seconds * 1000) return hit.value.value;
+  if (!force && hit.value && Number.isFinite(hit.value.savedAt) && now - hit.value.savedAt <= seconds * 1000) return hit.value.value;
   const value = await factory();
   await kv.set(key, { savedAt: now, value }, { expireIn: (seconds + 60) * 1000 });
   return value;
 }
 
-async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS) {
+async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS, force = false) {
   const ttl = asset.kind === 'crypto' ? 30 : 60;
   const snapshot = await cached('market/v2/' + symbol + '/' + interval, ttl, async () => {
     const fetchedAt = Math.floor(Date.now() / 1000);
@@ -193,7 +193,7 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
     const quoteTime = finiteNumber(meta.regularMarketTime) ?? barEndTime;
     const marketState = typeof meta.marketState === 'string' ? meta.marketState : 'UNKNOWN';
     return { bars, price, quoteTime, barEndTime, marketState, source: 'Yahoo Finance 公開資料（非官方 API）', fetchedAt };
-  });
+  }, force);
   const now = Math.floor(Date.now() / 1000);
   const step = INTERVAL_SECONDS[interval];
   const open = asset.kind === 'crypto' || snapshot.marketState === 'REGULAR';
@@ -422,6 +422,10 @@ async function research(request: Request) {
     debate = { enabled: true, bull, bear };
   } else {
     ai = validateAssessment(await geminiJSON(base, ASSESSMENT_SCHEMA, geminiKey, visitorKey), sourceIds);
+  }
+  const latest = await marketSnapshot(input.symbol, input.asset, input.interval, true);
+  if (latest.barEndTime !== market.barEndTime || latest.quoteTime < market.quoteTime || Math.abs(latest.price - market.price) > technical.indicators.atr14 * 0.5) {
+    throw new PublicError('AI 分析期間行情或已收盤 K 線已變動，請以最新資料重新研究。', 409);
   }
   const action = ai.action === technical.ruleAction ? ai.action : 'WAIT';
   return {
