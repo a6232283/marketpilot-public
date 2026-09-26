@@ -375,19 +375,43 @@
     return data;
   }
 
+  async function checkService() {
+    if (!configuredApi || Date.now() - (state.lastServiceCheck || 0) < 30000) return;
+    state.lastServiceCheck = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const answer = await fetch(configuredApi + '/v1/status', { mode: 'cors', credentials: 'omit', cache: 'no-store', signal: controller.signal });
+      const status = answer.ok ? await answer.json() : {};
+      state.serviceReady = answer.ok && status.ready === true;
+    } catch { state.serviceReady = false; }
+    finally { clearTimeout(timeout); state.serviceChecked = true; updateControls(); }
+  }
+
   async function runAnalysis() {
     $('analysis-error').textContent = '';
     if (!state.researchConsent) { $('analysis-error').textContent = '請先確認研究資料的使用方式。'; return; }
-    if (!configuredApi) { $('analysis-error').textContent = '公開研究服務尚未完成安全部署。'; return; }
+    if (!state.serviceReady) { $('analysis-error').textContent = '公開研究服務尚未就緒，請稍後再試。'; return; }
+    const request = ++state.researchRequest;
+    const controller = new AbortController();
+    const symbol = state.symbol, interval = state.interval, debate = $('ai-debate').checked;
+    state.researchAbort = controller;
+    const timeout = setTimeout(() => controller.abort(), debate ? 120000 : 50000);
     state.busy = true; updateControls();
     $('analysis-status').textContent = '研究處理中'; setTone($('analysis-status'), 'neutral');
     try {
-      const result = await callResearch('/v1/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: state.symbol, interval: state.interval, debate: $('ai-debate').checked }) });
+      const result = await callResearch('/v1/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, interval, debate }), signal: controller.signal });
+      if (request !== state.researchRequest || symbol !== state.symbol || interval !== state.interval) return;
+      if (result.market?.symbol !== symbol || result.market?.interval !== interval) throw new Error('研究結果與目前標的或週期不符，請重新執行。');
       state.lastResearch = result; renderAnalysis(result);
     } catch (error) {
-      $('analysis-error').textContent = error instanceof Error ? error.message : '公開研究服務暫時無法完成。';
+      if (request !== state.researchRequest) return;
+      $('analysis-error').textContent = controller.signal.aborted ? '研究等候逾時，請稍後重試。' : error instanceof Error ? error.message : '公開研究服務暫時無法完成。';
       $('analysis-status').textContent = '未產生結論'; setTone($('analysis-status'), 'neutral');
-    } finally { state.busy = false; updateControls(); }
+    } finally {
+      clearTimeout(timeout);
+      if (request === state.researchRequest) { state.researchAbort = null; state.busy = false; updateControls(); }
+    }
   }
 
   async function refreshNewsStatus() {
@@ -405,16 +429,17 @@
   $('privacy-revoke').addEventListener('click', revokeExternal);
   $('clear-preferences').addEventListener('click', () => {
     remove(OPTIONS_KEY); state.symbol = 'BTCUSDT'; state.interval = '15m'; state.range = '1D'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all';
-    state.lastResearch = null; $('privacy-status').textContent = '已清除本站圖表偏好並恢復預設。外部資料同意狀態維持不變。'; updateControls(); renderWidgets();
+    clearResearch(); $('privacy-status').textContent = '已清除本站圖表偏好並恢復預設。外部資料同意狀態維持不變。'; renderWidgets();
   });
   document.querySelectorAll('[data-symbol]').forEach(button => button.addEventListener('click', () => {
     if (!Object.hasOwn(ASSETS, button.dataset.symbol)) return;
-    state.symbol = button.dataset.symbol; state.lastResearch = null; $('analysis-error').textContent = ''; applyChartOptions();
+    if (state.symbol === button.dataset.symbol) return;
+    state.symbol = button.dataset.symbol; clearResearch(); applyChartOptions();
   }));
   document.querySelectorAll('[data-market-filter]').forEach(button => button.addEventListener('click', () => { state.marketFilter = button.dataset.marketFilter; saveOptions(); updateControls(); }));
-  document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval)) { state.interval = button.dataset.interval; state.lastResearch = null; applyChartOptions(); } }));
+  document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval) && state.interval !== button.dataset.interval) { state.interval = button.dataset.interval; clearResearch(); applyChartOptions(); } }));
   document.querySelectorAll('[data-range]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(RANGES, button.dataset.range)) { state.range = button.dataset.range; applyChartOptions(); } }));
-  $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); } });
+  $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); } });
   $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; updateControls(); });
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);
@@ -426,5 +451,7 @@
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
   }));
   updateControls();
+  checkService();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkService(); });
   if (state.allowed) renderWidgets();
 })();
