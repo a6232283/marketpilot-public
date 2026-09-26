@@ -219,7 +219,7 @@
 
   function renderWidgets() {
     if (!state.allowed) return;
-    mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], range: state.range, timezone: state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
+    mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], timezone: state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
     mount('news', { feedMode: 'all_symbols', colorTheme: 'dark', isTransparent: true, displayMode: 'regular', width: '100%', height: '100%', locale: 'zh_TW' }, '市場新聞');
     mount('overview', { colorTheme: 'dark', dateRange: '1D', showChart: true, locale: 'zh_TW', width: '100%', height: '100%', isTransparent: true, showSymbolLogo: true, showFloatingTooltip: true, tabs: [
       { title: '加密貨幣', symbols: [{ s: 'BINANCE:BTCUSDT', d: 'Bitcoin' }, { s: 'BINANCE:ETHUSDT', d: 'Ethereum' }, { s: 'BINANCE:SOLUSDT', d: 'Solana' }] },
@@ -416,11 +416,17 @@
 
   async function refreshNewsStatus() {
     if (!state.researchConsent) { $('analysis-error').textContent = '請先確認研究資料的使用方式，再檢查金十公開研究來源。'; return; }
+    const button = $('refresh-news');
+    if (button.disabled) return;
+    button.disabled = true; button.textContent = '檢查中…';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
     try {
-      const data = await callResearch('/v1/news');
+      const data = await callResearch('/v1/news', { signal: controller.signal });
       $('news-state').textContent = data.available ? 'AI 事件脈絡可使用' : '金十資料暫不可用'; setTone($('news-state'), data.available ? 'up' : 'neutral');
       $('jin10-note').textContent = data.available ? '金十 MCP 可供受限 AI 研究使用；目前 ' + data.count + ' 則事件脈絡，時間：' + formatTime(data.fetchedAt) + '。公開頁面不重製快訊全文。' : '金十 MCP 公開研究來源目前暫不可用；圖表與 TradingView 新聞仍可依你的同意載入。';
-    } catch (error) { $('jin10-note').textContent = error instanceof Error ? error.message : '無法確認金十公開研究來源。'; }
+    } catch (error) { $('jin10-note').textContent = controller.signal.aborted ? '事件資料檢查逾時，請稍後重試。' : error instanceof Error ? error.message : '無法確認金十公開研究來源。'; }
+    finally { clearTimeout(timeout); button.disabled = false; button.textContent = '更新來源狀態'; }
   }
 
   $('allow-external').addEventListener('click', allowExternal);
@@ -440,7 +446,8 @@
   document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval) && state.interval !== button.dataset.interval) { state.interval = button.dataset.interval; clearResearch(); applyChartOptions(); } }));
   document.querySelectorAll('[data-range]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(RANGES, button.dataset.range)) { state.range = button.dataset.range; applyChartOptions(); } }));
   $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); } });
-  $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; updateControls(); });
+  $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; if (!state.researchConsent) clearResearch(); else updateControls(); });
+  $('ai-debate').addEventListener('change', clearResearch);
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);
   document.querySelectorAll('[data-dialog]').forEach(button => button.addEventListener('click', () => $(button.dataset.dialog).showModal()));
