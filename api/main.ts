@@ -208,7 +208,7 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
   return snapshot;
 }
 
-async function dailyLevelSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], price: number) {
+async function dailyLevelSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS]) {
   return await cached('daily-levels/v1/' + symbol, 300, async () => {
     const now = Math.floor(Date.now() / 1000);
     try {
@@ -216,7 +216,7 @@ async function dailyLevelSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[
         const rows = await providerJSON('https://data-api.binance.vision/api/v3/klines?' + new URLSearchParams({ symbol, interval: '1d', limit: '32' }));
         const candles = Array.isArray(rows) ? rows.map(row => Array.isArray(row) ?
           ({ time: Number(row[0]) / 1000, open: row[1], high: row[2], low: row[3], close: row[4], volume: row[5] }) : {}) : [];
-        return twentyDayLevels(candles, price, 'crypto', now);
+        return twentyDayLevels(candles, finiteNumber(candles.at(-1)?.close) ?? 1, 'crypto', now);
       }
       const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?' + new URLSearchParams({ interval: '1d', range: '3mo', includePrePost: 'false' });
       const data = await providerJSON(url);
@@ -234,7 +234,7 @@ async function dailyLevelSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[
       const regular = trading.regular && typeof trading.regular === 'object' ? trading.regular as JsonRecord : {};
       const zone = typeof meta.exchangeTimezoneName === 'string' ? meta.exchangeTimezoneName : 'Etc/UTC';
       const candles = timestamps.map((time, index) => ({ time, open: column('open', index), high: column('high', index), low: column('low', index), close: column('close', index), volume: column('volume', index) }));
-      return twentyDayLevels(candles, price, 'stock', now, zone, finiteNumber(regular.end) ?? undefined);
+      return twentyDayLevels(candles, finiteNumber(candles.at(-1)?.close) ?? 1, 'stock', now, zone, finiteNumber(regular.end) ?? undefined);
     } catch {
       return null;
     }
@@ -427,6 +427,11 @@ async function protectNews(request: Request) {
   await consume(['marketpilot', 'rate', 'news', identity, Math.floor(Date.now() / 60_000)], 12, 60 * 1000, 1);
 }
 
+async function protectLevels(request: Request) {
+  const identity = await hashClient(request);
+  await consume(['marketpilot', 'rate', 'levels', identity, Math.floor(Date.now() / 60_000)], 12, 60 * 1000, 1);
+}
+
 function sourceStatus() {
   return {
     ready: Boolean(setting('PUBLIC_ORIGIN') && setting('RATE_LIMIT_SALT')),
@@ -446,7 +451,7 @@ async function research(request: Request) {
   if (!geminiKey) throw new PublicError('請改用自備 Gemini API key；站方 AI 額度尚未啟用。', 503);
   await protectResearch(request);
   const market = await marketSnapshot(input.symbol, input.asset, input.interval);
-  const dailyLevels = await dailyLevelSnapshot(input.symbol, input.asset, market.price);
+  const dailyLevels = await dailyLevelSnapshot(input.symbol, input.asset);
   const technical = {
     ...technicalAssessment(market.bars, { ...input.asset, symbol: input.symbol }, input.interval, market.price),
     dailyLevels, quoteTime: market.quoteTime, barEndTime: market.barEndTime, marketState: market.marketState
@@ -518,6 +523,13 @@ export async function handler(request: Request) {
       await protectNews(request);
       const flashes = await jin10Flashes();
       return response(request, { available: flashes.available, fetchedAt: flashes.fetchedAt, count: flashes.items.length, source: '金十官方 MCP（僅作 AI 研究上下文）' });
+    }
+    if (url.pathname === '/v1/levels' && request.method === 'GET') {
+      const symbol = (url.searchParams.get('symbol') || '').toUpperCase().trim();
+      const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
+      if (!asset) throw new PublicError('只支援公開頁面的精選標的。', 400);
+      await protectLevels(request);
+      return response(request, { symbol, dailyLevels: await dailyLevelSnapshot(symbol, asset), checkedAt: Math.floor(Date.now() / 1000) });
     }
     if (url.pathname === '/v1/research' && request.method === 'POST') return response(request, await research(request));
     return response(request, { error: '找不到服務。' }, 404);
