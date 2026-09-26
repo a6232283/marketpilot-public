@@ -115,6 +115,12 @@ export function recentFlashes<T extends { published: number }>(items: T[], nowSe
     .sort((left, right) => right.published - left.published).slice(0, MAX_NEWS_ITEMS);
 }
 
+export function publishedSeconds(value: unknown) {
+  if (typeof value !== 'string' || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value.trim())) return Number.NaN;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : Number.NaN;
+}
+
 function ema(values: number[], period: number) {
   if (values.length < period) return null;
   const multiplier = 2 / (period + 1);

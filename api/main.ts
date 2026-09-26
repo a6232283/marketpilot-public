@@ -17,6 +17,7 @@ import {
   normalizeResearchRequest,
   parseMcpPayload,
   recentFlashes,
+  publishedSeconds,
   safeModel,
   technicalAssessment,
   validateAssessment,
@@ -280,7 +281,7 @@ async function jin10Flashes(): Promise<Flashes> {
     const now = Math.floor(Date.now() / 1000);
     const items = recentFlashes(rows.slice(0, 100).map((row, index) => {
       const item = row && typeof row === 'object' ? row as JsonRecord : {};
-      const published = Math.floor(new Date(String(item.time || '')).getTime() / 1000);
+      const published = publishedSeconds(item.time);
       return { id: 'jin10-' + clampText(String(item.id || index), 100), published, text: stripMarkup(item.content || item.introduction || '') };
     }).filter(item => item.text), now);
     return { available: items.length > 0, fetchedAt: now, items };
