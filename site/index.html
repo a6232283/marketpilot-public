@@ -30,7 +30,7 @@
         <button class="watch-row" data-symbol="0700.HK" data-kind="stock" aria-pressed="false"><span class="watch-mark">騰</span><span class="watch-label"><strong>騰訊控股</strong><small>HKEX · 香港</small></span><span class="watch-values"><strong>0700</strong><small>香港股票</small></span></button>
         <button class="watch-row" data-symbol="7203.T" data-kind="stock" aria-pressed="false"><span class="watch-mark">T</span><span class="watch-label"><strong>豐田汽車</strong><small>TSE · 日本</small></span><span class="watch-values"><strong>7203</strong><small>日本股票</small></span></button>
       </div>
-      <div class="sidebar-bottom"><strong>公開服務範圍</strong><p>行情圖表與新聞可公開查看；AI 研究與策略走線會在 Deno Deploy 服務就緒後開放。服務啟用時由後端 Secrets 保管 Gemini 與金十憑證。</p><button class="text-button" data-dialog="privacy-dialog">隱私與資料來源 ↗</button></div>
+      <div class="sidebar-bottom"><strong>公開服務範圍</strong><p>行情圖表與新聞可公開查看；AI 研究與策略走線會在 Deno Deploy 服務就緒後開放。站方憑證由後端 Secrets 保管，訪客可選擇自備 Gemini 金鑰。</p><button class="text-button" data-dialog="privacy-dialog">隱私與資料來源 ↗</button></div>
     </aside>
 
     <section class="workspace">
@@ -45,7 +45,7 @@
         <section class="metric-grid" aria-label="研究摘要">
           <article class="metric"><div class="metric-top"><span>研究參考價</span><span id="metric-symbol" class="metric-symbol">BTC / USDT</span></div><div id="metric-price" class="metric-price">—</div><div class="metric-bottom"><span id="metric-source">執行研究後顯示來源與時間</span><small id="metric-freshness">等待資料</small></div></article>
           <article class="metric"><div class="metric-top"><span>透明規則</span><span class="metric-symbol">條件式</span></div><div id="metric-rule" class="metric-price neutral">等待評估</div><div class="metric-bottom"><span>EMA、RSI、動能與 ATR</span><small id="metric-score">未產生分數</small></div></article>
-          <article class="metric"><div class="metric-top"><span>AI 研究</span><span class="metric-symbol">Gemini</span></div><div id="metric-ai" class="metric-price neutral">待啟動</div><div class="metric-bottom"><span>固定模型 · Deno Secret</span><small id="metric-ai-detail">不公開 API key</small></div></article>
+          <article class="metric"><div class="metric-top"><span>AI 研究</span><span class="metric-symbol">Gemini</span></div><div id="metric-ai" class="metric-price neutral">待啟動</div><div class="metric-bottom"><span>固定模型 · 可自備金鑰</span><small id="metric-ai-detail">不公開 API key</small></div></article>
           <article class="metric"><div class="metric-top"><span>事件資料</span><span class="metric-symbol">金十 MCP</span></div><div id="metric-news" class="metric-price neutral">待確認</div><div class="metric-bottom"><span>僅作 AI 受限上下文</span><small id="metric-news-detail">不重製快訊全文</small></div></article>
         </section>
 
@@ -79,7 +79,7 @@
           <section class="panel overview-panel" aria-labelledby="overview-title"><div class="panel-head"><div><div class="section-title"><h2 id="overview-title">全球市場概覽</h2><span class="pill">TradingView</span></div><p class="section-subtitle">加密貨幣與全球股票的公開概覽</p></div></div><div id="overview-widget" class="overview-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◫</div><strong>市場概覽尚未載入</strong><p>資料來源連線由你控制，啟用前不會載入外部元件。</p><button class="button quiet" data-allow-external>載入概覽</button></div></div></section>
         </section>
 
-        <section class="panel local-only" aria-labelledby="local-title"><div class="panel-head"><div><div class="section-title"><h2 id="local-title">帳本、交易與私密設定</h2><span class="paper-tag">本機限定</span></div><p class="section-subtitle">保留與本機工作站相同的功能分區；私密資料不會提供給公開訪客</p></div><span class="masked-value">•••• •••• ••••</span></div><div class="local-only-grid"><div><strong>AI 與金十憑證</strong><p>公開研究啟用後只由 Deno Deploy Secrets 讀取；瀏覽器、GitHub Pages 與 Git 歷史都沒有實值。</p></div><div><strong>紙上模擬與交易</strong><p>持倉、交易紀錄、開倉、平倉與交易所連線仍限定本機，不會共用給公開訪客。</p></div><div><strong>個人研究資料</strong><p>自選清單以外的文章摘錄、私人設定與帳本保持本機私有，不會隨公開網站同步。</p></div></div></section>
+        <section class="panel local-only" aria-labelledby="local-title"><div class="panel-head"><div><div class="section-title"><h2 id="local-title">帳本、交易與私密設定</h2><span class="paper-tag">本機限定</span></div><p class="section-subtitle">保留與本機工作站相同的功能分區；私密資料不會提供給公開訪客</p></div><span class="masked-value">•••• •••• ••••</span></div><div class="local-only-grid"><div><strong>站方 AI 與金十憑證</strong><p>公開研究啟用後由 Deno Deploy Secrets 讀取；訪客自備金鑰僅在當次研究請求傳送，不隨 GitHub Pages 或 Git 歷史發布。</p></div><div><strong>紙上模擬與交易</strong><p>持倉、交易紀錄、開倉、平倉與交易所連線仍限定本機，不會共用給公開訪客。</p></div><div><strong>個人研究資料</strong><p>自選清單以外的文章摘錄、私人設定與帳本保持本機私有，不會隨公開網站同步。</p></div></div></section>
 
         <aside class="service-notice"><span class="risk-icon" aria-hidden="true">!</span><p><strong>投資有風險，研究不等於建議。</strong>本站只提供一般市場資訊與研究工具。行情、新聞、透明規則與 AI 內容都可能延遲、錯誤或失效；使用者應自行查證並獨立決策。</p><button class="text-button" data-dialog="legal-dialog">完整聲明 ↗</button></aside>
 
