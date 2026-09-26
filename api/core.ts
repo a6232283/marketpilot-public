@@ -231,7 +231,8 @@ export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string
   if (e20! > e50!) score += 1; else score -= 1;
   if (momentum > 0) score += 1; else score -= 1;
   if (rsi14! < 75 && rsi14! > 25) score += momentum >= 0 ? 1 : -1;
-  const ruleAction = score >= 3 && rsi14! < 75 ? 'LONG' : score <= -3 && rsi14! > 25 ? 'SHORT' : 'WAIT';
+  const priceAction = priceActionDiagnosis(cleaned, atr14!);
+  const ruleAction = priceAction.gate === 'WAIT' ? 'WAIT' : score >= 3 && rsi14! < 75 ? 'LONG' : score <= -3 && rsi14! > 25 ? 'SHORT' : 'WAIT';
   const levels = ruleAction === 'LONG' ? {
     entryLow: rounded(price - atr14! * 0.2, price), entryHigh: rounded(price + atr14! * 0.2, price),
     invalidation: rounded(price - atr14! * 1.5, price), targetOne: rounded(price + atr14! * 3, price), targetTwo: rounded(price + atr14! * 4.5, price)
@@ -252,7 +253,7 @@ export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string
     ruleAction,
     score,
     confidence: Math.min(100, Math.round(Math.abs(score) / 4 * 100)),
-    priceAction: priceActionDiagnosis(cleaned, atr14!),
+    priceAction,
     indicators: {
       ema20: rounded(e20!, price), ema50: rounded(e50!, price), rsi14: Number(rsi14!.toFixed(1)), atr14: rounded(atr14!, price),
       momentum20: Number((momentum * 100).toFixed(2)), support20: rounded(Math.min(...cleaned.slice(-20).map(bar => bar.low)), price),

@@ -10,7 +10,7 @@ SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg'})
 DENO_FILES = frozenset({'main.ts', 'core.ts', 'deno.json', 'deno.lock'})
 HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES} | {
     '.github/workflows/pages.yml', 'check_public.py', 'README.md', '.gitignore'})
-REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'api/' + p for p in DENO_FILES})
+REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'api/' + p for p in DENO_FILES} | {'LICENSE'})
 MAX_FILE = 1_000_000
 MAX_TOTAL = 4_000_000
 RULES = [
