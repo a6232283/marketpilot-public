@@ -271,6 +271,17 @@
     copy.append(element('strong', '', actionText(action)));
     copy.append(element('p', '', result.summary || '未產生可驗證的 AI 摘要，保持觀望。'));
     banner.append(icon, copy); wrap.append(banner);
+    if (market.priceAction) {
+      const pa = market.priceAction;
+      const details = element('details', 'analysis-list');
+      details.append(element('summary', '', '價格行為結構診斷 · ' + (pa.gate === 'WAIT' ? '觀望閘門' : '交叉檢查')));
+      const regime = { up: '上行', down: '下行', range: '高重疊區間', transition: '轉換中', unknown: '資料不足' }[pa.regime] || '未確認';
+      const breakout = { up: '向上收盤突破', down: '向下收盤突破', failed_up: '上破後回落', failed_down: '下破後收回', up_probe: '上緣探測', down_probe: '下緣探測', none: '無明確突破' }[pa.breakout] || '未確認';
+      details.append(element('p', '', '結構：' + regime + ' · 突破：' + breakout + ' · 近 10 根重疊 ' + Math.round(Number(pa.overlap10 || 0) * 100) + '%'));
+      details.append(element('p', '', pa.reason || '僅供研究交叉檢查。'));
+      details.append(element('small', '', '僅使用已收盤 K 線；不是 PA_Agent 原程式或已驗證的交易策略。'));
+      wrap.append(details);
+    }
     appendList(wrap, '研究理由', result.reasons);
     appendList(wrap, '風險與反證', result.risks);
     const invalidation = element('section', 'analysis-list');
