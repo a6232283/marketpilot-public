@@ -453,5 +453,6 @@
   updateControls();
   checkService();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkService(); });
+  if (configuredApi) setInterval(() => { if (!document.hidden) checkService(); }, 60000);
   if (state.allowed) renderWidgets();
 })();
