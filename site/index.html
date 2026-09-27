@@ -9,7 +9,7 @@
   <title>MarketPilot — 公開市場研究</title>
   <meta name="description" content="MarketPilot 公開市場研究：加密貨幣與全球股票 K 線、新聞、受限 AI 研究與風險資訊。僅供一般資訊參考，非投資建議。">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css?v=32e08bd20879">
+  <link rel="stylesheet" href="./style.css?v=68a884667adb">
   <script src="./backtest-ui.js?v=1b912cd7b9f9" defer></script>
   <script src="./app.js?v=504b39873be5" defer></script>
 </head>
@@ -31,14 +31,13 @@
         <button class="watch-row" data-symbol="0700.HK" data-kind="stock" aria-pressed="false"><span class="watch-mark">騰</span><span class="watch-label"><strong>騰訊控股</strong><small>HKEX · 香港</small></span><span class="watch-values"><strong>0700</strong><small>香港股票</small></span></button>
         <button class="watch-row" data-symbol="7203.T" data-kind="stock" aria-pressed="false"><span class="watch-mark">T</span><span class="watch-label"><strong>豐田汽車</strong><small>TSE · 日本</small></span><span class="watch-values"><strong>7203</strong><small>日本股票</small></span></button>
       </div>
-      <div class="sidebar-bottom"><strong>公開服務範圍</strong><p>行情圖表與新聞可公開查看；規則走線自動更新，歷史回測與 AI 研究可手動執行。站方憑證由後端私密設定保管，訪客可選擇自備 Gemini 金鑰。</p><button class="text-button" data-dialog="privacy-dialog">隱私與資料來源 ↗</button></div>
     </aside>
 
     <section class="workspace">
-      <header class="topbar"><div class="breadcrumb"><span>公開市場研究</span><span>／</span><strong id="crumb-symbol">BTCUSDT</strong></div><div class="top-actions"><a class="button subtle" href="#backtest-panel">歷史回測</a><span id="service-state" class="live-chip neutral">服務檢查中</span><button class="button subtle" data-dialog="settings-dialog">公開服務設定</button><button class="button subtle" data-dialog="legal-dialog">服務與風險</button></div></header>
+      <header class="topbar"><div class="breadcrumb"><span>MarketPilot</span><span>／</span><strong id="crumb-symbol">BTCUSDT</strong></div><nav class="quick-nav" aria-label="頁面導覽"><a href="#market-panel">行情</a><a href="#strategy-panel">策略</a><a href="#analysis-panel">AI 研究</a><a href="#backtest-panel">回測</a><a href="#news-panel">新聞</a></nav><div class="top-actions"><span id="service-state" class="live-chip neutral">服務檢查中</span><button class="button subtle" data-dialog="settings-dialog">設定</button></div></header>
 
       <main id="main">
-        <section class="page-heading"><div><p class="eyebrow">PUBLIC RESEARCH WORKSPACE</p><h1>讓資料幫你看清，<span>但別替你做決定。</span></h1><p>圖表、行情脈絡、策略走線與條件式研究放在同一個工作區。所有 AI 結論都應自行查證，不能當成下單指令。</p></div><div class="heading-note"><span>公開版</span><strong>延續本機研究工作區</strong><small>憑證不隨公開頁面發布</small></div></section>
+        <section class="page-heading"><div><p class="eyebrow">PUBLIC MARKET WORKSPACE</p><h1>市場研究<span>工作台</span></h1><p>選標的、讀行情與策略條件，再比較 AI 研究和歷史回測。</p></div></section>
 
         <section class="consent-card" id="consent-card" aria-labelledby="consent-title"><div class="consent-icon" aria-hidden="true">◇</div><div class="consent-copy"><h2 id="consent-title">由你決定何時連接外部市場資料</h2><p>圖表、市場概覽與新聞由 TradingView 官方元件提供。預設的規則與日線透過本站研究後端取得 Binance／Yahoo 資料。載入後，資料提供者可能收到你的 IP、瀏覽器與選定標的等資訊。AI 研究可選擇自備 Gemini API key；本站不要求交易所或金十憑證。</p><button class="text-button" data-dialog="privacy-dialog">了解隱私與資料來源 ↗</button></div><button id="allow-external" class="button primary">同意並載入市場資料 <span aria-hidden="true">↗</span></button></section>
         <div class="connection-bar" id="connection-bar" hidden><span><span class="status-dot"></span> 已允許外部圖表與日線研究資料 · 行情更新與可用市場以來源顯示為準</span><button id="revoke-external" class="text-button">停止載入並撤回同意</button></div>
@@ -53,7 +52,7 @@
 
         <section class="panel rules-toolbar" aria-label="規則引擎設定"><label><input id="rules-enabled" type="checkbox" checked> <strong>日線規則引擎</strong> · 預設開啟</label><span id="rules-status" role="status">取得市場資料同意後自動計算，不消耗 AI 額度</span><button id="refresh-rules" class="button subtle">更新規則</button></section>
         <section class="research-grid">
-          <section class="panel chart-panel" aria-labelledby="chart-title">
+          <section class="panel chart-panel" id="market-panel" aria-labelledby="chart-title">
             <div class="panel-head chart-head"><div class="asset-heading"><p class="eyebrow">SHORT-TERM CANDLES</p><h2 id="chart-title">Bitcoin <span id="chart-symbol">BTC / USDT</span></h2><p id="chart-subtitle" class="section-subtitle">Binance · 加密貨幣現貨</p></div><a id="open-chart" class="button subtle" target="_blank" rel="noopener noreferrer">來源圖表 ↗</a></div>
             <div class="chart-toolbar"><div class="candle-toolbar"><span class="chart-label">K 線週期</span><div class="candle-periods" role="group" aria-label="K 線週期"><button data-interval="5m">5 分鐘</button><button data-interval="15m" class="active">15 分鐘</button><button data-interval="30m">30 分鐘</button><button data-interval="1h">1 小時</button></div></div><span class="chart-label">顯示範圍可在圖內縮放</span></div>
             <div class="chart-zone"><label>顯示時區<select id="timezone"><option value="Asia/Taipei">台北 UTC+8</option><option value="Etc/UTC">UTC</option><option value="exchange">交易所時區</option></select></label><span id="chart-refresh-status">圖表在取得同意後由 TradingView 載入</span></div>
@@ -61,32 +60,30 @@
             <div class="chart-foot"><span id="chart-selection">預設每根 K 線 15 分鐘 · Asia/Taipei · 圖內可縮放；以圖內實際週期為準</span><span>圖表不預測未來；尚未收盤的 K 線可能變動。</span></div>
           </section>
 
-          <aside class="panel insight-panel" aria-labelledby="analysis-title">
+          <section class="panel strategy-panel" id="strategy-panel" aria-labelledby="strategy-title">
+            <div class="panel-head strategy-head"><div><div class="section-title"><h2 id="strategy-title">策略走線</h2><span id="strategy-badge" class="strategy-badge">等待研究</span></div><p class="section-subtitle">條件式參考價、20 日支撐／壓力與 AI 風險審核</p></div><div class="strategy-legend"><span><i class="price-key"></i>參考價</span><span><i class="entry-key"></i>觀察區</span><span><i class="target-key"></i>條件目標</span><span><i class="stop-key"></i>失效條件</span><span><i class="support-key"></i>20 日支撐</span><span><i class="resistance-key"></i>20 日壓力</span></div></div>
+            <div class="strategy-message" id="strategy-message">同意連接市場資料後先顯示 20 日歷史支撐／壓力；預設開啟的規則引擎同步計算條件走線。這不是預測曲線或掛單指示。</div>
+            <div class="strategy-chart" id="strategy-chart"><svg id="strategy-svg" viewBox="0 0 1000 260" role="img" aria-label="等待研究資料的策略走線"><rect width="1000" height="260" fill="#111923"></rect><text x="500" y="132" text-anchor="middle" fill="#8fa3b9" font-size="18">尚未產生條件走線</text></svg></div>
+            <div id="strategy-cards" class="strategy-cards"><div class="strategy-no-plan">20 日線將在取得外部資料同意後載入；規則引擎會自動計算參考價與有效的條件走線。</div></div>
+            <div class="strategy-footer"><span>公開版不連接交易所、不儲存投資組合，也不提供自動或手動下單。</span><span id="strategy-time">尚無研究時間</span></div>
+          </section>
+
+          <aside class="panel insight-panel" id="analysis-panel" aria-labelledby="analysis-title">
             <div class="panel-head"><div><div class="section-title"><h2 id="analysis-title">決策研究</h2><span id="analysis-status" class="pill neutral">尚未執行</span></div><p class="section-subtitle">日線規則先行 · Gemini、價格結構與新聞交叉研究</p></div></div>
             <div id="analysis" class="analysis-body"><div class="analysis-empty"><div class="radar-icon">◎</div><strong>先看資料，再讀結論</strong><p>研究服務接收目前精選標的與 K 線週期；若選擇自備金鑰，按下研究時也會接收該 Gemini API key。</p></div></div>
-            <div class="analysis-actions"><label class="analysis-mode-picker" for="analysis-mode"><strong>AI 分析選單</strong><select id="analysis-mode"><option value="standard">① 標準 AI 研究 · 1 次呼叫</option><option value="agents">② TradingAgents 多角色研究 · 5 次呼叫</option></select><small>第二模式分技術、事件、多方、空方與風控五輪分析；是獨立實作的流程精簡版，不含原框架的基本面、社群與持倉資料。</small></label><fieldset class="key-source"><legend>Gemini API 使用方式</legend><label><input type="radio" name="gemini-source" value="shared" checked> 使用網站額度</label><label><input type="radio" name="gemini-source" value="own"> 使用自己的 API key</label></fieldset><div id="own-key-fields" class="own-key-fields" hidden><label for="own-api-key">你的 Gemini API key</label><div class="own-key-row"><input id="own-api-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" maxlength="256" aria-describedby="own-key-help"><button id="clear-own-key" class="button subtle" type="button">清除</button></div><p id="own-key-help" class="help">金鑰只留在此頁記憶體；按下研究時會經 HTTPS 送到本站研究後端，再由服務呼叫 Google。本站不儲存金鑰；重新整理即清除。</p></div><label class="research-consent"><input id="research-consent" type="checkbox"> 我了解選定標的、週期、AI 模式與辯論設定會送往研究服務；選擇自備金鑰時，也會把金鑰送往本站研究後端與 Google。資料來源可能處理連線資料。</label><label class="debate-switch"><span><strong>標準模式：AI 多空辯論</strong><small>多方 → 空方 → 審核；一次消耗 3 次額度，第二模式不適用</small></span><input id="ai-debate" type="checkbox"></label><button id="run-analysis" class="button primary">AI 深度評估 ↗</button><p id="analysis-progress" class="help" role="status" aria-live="polite" hidden></p><p id="analysis-error" class="help error-text" aria-live="polite"></p></div>
+            <div class="analysis-actions"><details class="analysis-options"><summary>分析模式與金鑰 <small>可選多角色研究、自備金鑰與辯論</small></summary><label class="analysis-mode-picker" for="analysis-mode"><strong>AI 分析選單</strong><select id="analysis-mode"><option value="standard">① 標準 AI 研究 · 1 次呼叫</option><option value="agents">② TradingAgents 多角色研究 · 5 次呼叫</option></select><small>第二模式分技術、事件、多方、空方與風控五輪分析；是獨立實作的流程精簡版，不含原框架的基本面、社群與持倉資料。</small></label><fieldset class="key-source"><legend>Gemini API 使用方式</legend><label><input type="radio" name="gemini-source" value="shared" checked> 使用網站額度</label><label><input type="radio" name="gemini-source" value="own"> 使用自己的 API key</label></fieldset><div id="own-key-fields" class="own-key-fields" hidden><label for="own-api-key">你的 Gemini API key</label><div class="own-key-row"><input id="own-api-key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" maxlength="256" aria-describedby="own-key-help"><button id="clear-own-key" class="button subtle" type="button">清除</button></div><p id="own-key-help" class="help">金鑰只留在此頁記憶體；按下研究時會經 HTTPS 送到本站研究後端，再由服務呼叫 Google。本站不儲存金鑰；重新整理即清除。</p></div><label class="debate-switch"><span><strong>標準模式：AI 多空辯論</strong><small>多方 → 空方 → 審核；一次消耗 3 次額度，第二模式不適用</small></span><input id="ai-debate" type="checkbox"></label></details><label class="research-consent"><input id="research-consent" type="checkbox"> 我了解選定標的、週期、AI 模式與辯論設定會送往研究服務；選擇自備金鑰時，也會把金鑰送往本站研究後端與 Google。資料來源可能處理連線資料。</label><button id="run-analysis" class="button primary">AI 深度評估 ↗</button><p id="analysis-progress" class="help" role="status" aria-live="polite" hidden></p><p id="analysis-error" class="help error-text" aria-live="polite"></p></div>
             <div class="panel-note">若資料不足、價格行為顯示高重疊或失敗突破、事件風險不明、規則與 AI 不一致或來源正在限流，結果會保持觀望。這不是投資建議或下單依據。</div>
           </aside>
         </section>
 
-        <section class="panel strategy-panel" aria-labelledby="strategy-title">
-          <div class="panel-head strategy-head"><div><div class="section-title"><h2 id="strategy-title">策略走線</h2><span id="strategy-badge" class="strategy-badge">等待研究</span></div><p class="section-subtitle">條件式參考價、20 日支撐／壓力與 AI 風險審核</p></div><div class="strategy-legend"><span><i class="price-key"></i>參考價</span><span><i class="entry-key"></i>觀察區</span><span><i class="target-key"></i>條件目標</span><span><i class="stop-key"></i>失效條件</span><span><i class="support-key"></i>20 日支撐</span><span><i class="resistance-key"></i>20 日壓力</span></div></div>
-          <div class="strategy-message" id="strategy-message">同意連接市場資料後先顯示 20 日歷史支撐／壓力；預設開啟的規則引擎同步計算條件走線。這不是預測曲線或掛單指示。</div>
-          <div class="strategy-chart" id="strategy-chart"><svg id="strategy-svg" viewBox="0 0 1000 260" role="img" aria-label="等待研究資料的策略走線"><rect width="1000" height="260" fill="#111923"></rect><text x="500" y="132" text-anchor="middle" fill="#8fa3b9" font-size="18">尚未產生條件走線</text></svg></div>
-          <div id="strategy-cards" class="strategy-cards"><div class="strategy-no-plan">20 日線將在取得外部資料同意後載入；規則引擎會自動計算參考價與有效的條件走線。</div></div>
-          <div class="strategy-footer"><span>公開版不連接交易所、不儲存投資組合，也不提供自動或手動下單。</span><span id="strategy-time">尚無研究時間</span></div>
-        </section>
-
+        <section class="panel backtest-panel" id="backtest-panel" aria-label="歷史策略回測"></section>
         <section class="lower-grid">
-          <section class="panel research-library" aria-labelledby="news-title"><div class="panel-head"><div><div class="section-title"><h2 id="news-title">市場焦點</h2><span id="news-state" class="pill neutral">需外部資料同意</span></div><p class="section-subtitle">TradingView 新聞 · 事件資料另受限供 AI 使用</p></div><button id="refresh-news" class="button subtle">更新來源狀態</button></div><div id="news-widget" class="news-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◌</div><strong>新聞尚未載入</strong><p>同意外部資料後，會由 TradingView 提供公開市場新聞。</p><button class="button quiet" data-allow-external>載入新聞</button></div></div><div class="panel-note" id="jin10-note">金十 MCP Token 不會傳到瀏覽器。公開研究服務僅固定使用快訊作事件脈絡，不提供任意 MCP 工具或全文下載。</div></section>
+          <section class="panel research-library" id="news-panel" aria-labelledby="news-title"><div class="panel-head"><div><div class="section-title"><h2 id="news-title">市場焦點</h2><span id="news-state" class="pill neutral">需外部資料同意</span></div><p class="section-subtitle">TradingView 新聞 · 事件資料另受限供 AI 使用</p></div><button id="refresh-news" class="button subtle">更新來源狀態</button></div><div id="news-widget" class="news-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◌</div><strong>新聞尚未載入</strong><p>同意外部資料後，會由 TradingView 提供公開市場新聞。</p><button class="button quiet" data-allow-external>載入新聞</button></div></div><div class="panel-note" id="jin10-note">金十 MCP Token 不會傳到瀏覽器。公開研究服務僅固定使用快訊作事件脈絡，不提供任意 MCP 工具或全文下載。</div></section>
           <section class="panel overview-panel" aria-labelledby="overview-title"><div class="panel-head"><div><div class="section-title"><h2 id="overview-title">全球市場概覽</h2><span class="pill">TradingView</span></div><p class="section-subtitle">加密貨幣與全球股票的公開概覽</p></div></div><div id="overview-widget" class="overview-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◫</div><strong>市場概覽尚未載入</strong><p>資料來源連線由你控制，啟用前不會載入外部元件。</p><button class="button quiet" data-allow-external>載入概覽</button></div></div></section>
         </section>
 
-        <section class="panel local-only" aria-labelledby="local-title"><div class="panel-head"><div><div class="section-title"><h2 id="local-title">帳本、交易與私密設定</h2><span class="paper-tag">本機限定</span></div><p class="section-subtitle">保留與本機工作站相同的功能分區；私密資料不會提供給公開訪客</p></div><span class="masked-value">•••• •••• ••••</span></div><div class="local-only-grid"><div><strong>站方 AI 與金十憑證</strong><p>公開研究由站方電腦的私密設定讀取；訪客自備金鑰僅在當次研究請求傳送，不隨 GitHub Pages 或 Git 歷史發布。</p></div><div><strong>紙上模擬與交易</strong><p>持倉、交易紀錄、開倉、平倉與交易所連線仍限定本機，不會共用給公開訪客。</p></div><div><strong>個人研究資料</strong><p>自選清單以外的文章摘錄、私人設定與帳本保持本機私有，不會隨公開網站同步。</p></div></div></section>
-
         <aside class="service-notice"><span class="risk-icon" aria-hidden="true">!</span><p><strong>投資有風險，研究不等於建議。</strong>本站只提供一般市場資訊與研究工具。行情、新聞、透明規則與 AI 內容都可能延遲、錯誤或失效；使用者應自行查證並獨立決策。</p><button class="text-button" data-dialog="legal-dialog">完整聲明 ↗</button></aside>
 
-        <section class="panel backtest-panel" id="backtest-panel" aria-label="歷史策略回測"></section>
         <footer><span><span class="footer-logo">M↗</span> MarketPilot <span class="footer-version">公開研究版</span></span><span>一般資訊服務 · 不保證報酬 · 不提供交易</span><a class="text-button" href="https://github.com/a6232283/marketpilot-public" target="_blank" rel="noopener noreferrer">開放原始碼 ↗</a><button class="text-button" data-dialog="privacy-dialog">隱私與來源</button><button class="text-button" data-dialog="legal-dialog">服務與風險</button></footer>
       </main>
     </section>
