@@ -136,6 +136,7 @@
         const button = element('button','button subtle',label); button.type='button'; button.disabled=disabled;
         button.setAttribute('aria-label',action === 'remove' ? '移除 '+symbol : (action === 'up' ? '上移 ' : '下移 ')+symbol);
         button.addEventListener('click',()=>{
+          $('asset-add-status').textContent='';
           if (action === 'remove') {
             state.watchlist.splice(index,1);
             if (state.symbol === symbol) selectSymbol(state.watchlist[0]);
