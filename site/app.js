@@ -7,7 +7,7 @@
     '5m': ['5 分鐘', '5'], '15m': ['15 分鐘', '15'], '30m': ['30 分鐘', '30'], '1h': ['1 小時', '60']
   });
   const ZONES = Object.freeze(['Asia/Taipei', 'Etc/UTC', 'exchange']);
-  const ASSETS = Object.freeze({
+  const ASSETS = {
     BTCUSDT: { name: 'Bitcoin', badge: 'BTC / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:BTCUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
     ETHUSDT: { name: 'Ethereum', badge: 'ETH / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:ETHUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
     SOLUSDT: { name: 'Solana', badge: 'SOL / USDT', market: 'Binance · 加密貨幣現貨', chart: 'BINANCE:SOLUSDT', kind: 'crypto', currency: 'USDT', zone: 'Etc/UTC' },
@@ -16,7 +16,8 @@
     '2330.TW': { name: '台積電', badge: '2330', market: 'TWSE · 台灣股票', chart: 'TWSE:2330', kind: 'stock', currency: 'TWD', zone: 'Asia/Taipei' },
     '0700.HK': { name: '騰訊控股', badge: '0700', market: 'HKEX · 香港股票', chart: 'HKEX:700', kind: 'stock', currency: 'HKD', zone: 'Asia/Hong_Kong' },
     '7203.T': { name: '豐田汽車', badge: '7203', market: 'TSE · 日本股票', chart: 'TSE:7203', kind: 'stock', currency: 'JPY', zone: 'Asia/Tokyo' }
-  });
+  };
+  const DEFAULT_WATCHLIST = Object.keys(ASSETS);
   const PROVIDER_SCRIPTS = Object.freeze({
     chart: 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js',
     news: 'https://s3.tradingview.com/external-embedding/embed-widget-timeline.js',
@@ -48,9 +49,26 @@
   let saved = {};
   try { saved = JSON.parse(read(OPTIONS_KEY) || '{}'); } catch { saved = {}; }
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
+  const customAssets = Object.create(null);
+  if (Array.isArray(saved.customAssets)) for (const item of saved.customAssets.slice(0,16)) {
+    if (!item || typeof item !== 'object' || typeof item.symbol !== 'string') continue;
+    const symbol = item.symbol.toUpperCase();
+    if (Object.hasOwn(ASSETS,symbol) || !/^[A-Z0-9.^-]{1,20}$/.test(symbol) || !['stock','crypto'].includes(item.kind) ||
+      (item.kind === 'crypto' && !/^[A-Z0-9]{2,16}USDT$/.test(symbol)) ||
+      typeof item.chart !== 'string' || !/^[A-Z0-9.:^-]{1,45}$/.test(item.chart) ||
+      typeof item.name !== 'string' || !item.name || item.name.length > 80 ||
+      typeof item.currency !== 'string' || !/^[A-Z]{3,4}$/.test(item.currency) ||
+      typeof item.zone !== 'string' || item.zone.length > 60) continue;
+    const entry = {name:item.name,badge:symbol,market:item.kind === 'crypto' ? 'Binance · 加密貨幣現貨' : '全球股票 · 自選',chart:item.chart,kind:item.kind,currency:item.currency,zone:item.zone};
+    ASSETS[symbol] = entry; customAssets[symbol] = {symbol,...entry};
+  }
+  const storedWatchlist = Array.isArray(saved.watchlist) ? saved.watchlist : DEFAULT_WATCHLIST;
+  const watchlist = [...new Set(storedWatchlist.filter(symbol => typeof symbol === 'string' && Object.hasOwn(ASSETS,symbol)))].slice(0,16);
+  if (!watchlist.length) watchlist.push('BTCUSDT');
   const state = {
     allowed: !forcedOff && read(CONSENT_KEY) === 'granted',
-    symbol: Object.hasOwn(ASSETS, saved.symbol) ? saved.symbol : 'BTCUSDT',
+    symbol: watchlist.includes(saved.symbol) ? saved.symbol : watchlist[0],
+    watchlist,
     interval: Object.hasOwn(INTERVALS, saved.interval) ? saved.interval : '15m',
     timezone: ZONES.includes(saved.timezone) ? saved.timezone : 'Asia/Taipei',
     marketFilter: ['all', 'crypto', 'stock'].includes(saved.marketFilter) ? saved.marketFilter : 'all',
@@ -81,10 +99,58 @@
   let renderTimer;
 
   function saveOptions() {
-    write(OPTIONS_KEY, JSON.stringify({ symbol: state.symbol, interval: state.interval, timezone: state.timezone, marketFilter: state.marketFilter, rulesEnabled: state.rulesEnabled }));
+    write(OPTIONS_KEY, JSON.stringify({ symbol: state.symbol, interval: state.interval, timezone: state.timezone, marketFilter: state.marketFilter, rulesEnabled: state.rulesEnabled,
+      watchlist:state.watchlist, customAssets:Object.values(customAssets) }));
   }
 
   function asset() { return ASSETS[state.symbol]; }
+  function selectSymbol(symbol) {
+    if (!state.watchlist.includes(symbol) || symbol === state.symbol) return;
+    state.symbol = symbol; window.dispatchEvent(new Event('marketpilot:asset'));
+    clearResearch(); applyChartOptions(); loadDailyLevels(); renderWatchlist();
+  }
+  function renderWatchlist() {
+    const root = $('watchlist'); root.replaceChildren();
+    const symbols = state.watchlist.filter(symbol => state.marketFilter === 'all' || ASSETS[symbol].kind === state.marketFilter);
+    for (const symbol of symbols) {
+      const item = ASSETS[symbol], button = element('button','watch-row');
+      button.type = 'button'; button.dataset.symbol = symbol; button.dataset.kind = item.kind;
+      button.setAttribute('aria-pressed',String(symbol === state.symbol));
+      const mark = element('span','watch-mark',symbol === 'BTCUSDT' ? '₿' : symbol === 'ETHUSDT' ? 'Ξ' : /^[\u4e00-\u9fff]/.test(item.name) ? item.name.slice(0,1) : symbol.slice(0,1));
+      if (symbol === 'BTCUSDT') mark.classList.add('bitcoin');
+      if (symbol === 'ETHUSDT') mark.classList.add('ethereum');
+      const label = element('span','watch-label'), values = element('span','watch-values');
+      label.append(element('strong','',item.name),element('small','',item.badge));
+      values.append(element('strong','',symbol),element('small','',item.kind === 'crypto' ? '加密貨幣' : '股票／ETF'));
+      button.append(mark,label,values); button.addEventListener('click',()=>selectSymbol(symbol)); root.append(button);
+    }
+    if (!symbols.length) root.append(element('p','watch-empty','這個類別尚無自選標的。'));
+    updateControls();
+  }
+  function renderWatchManager() {
+    const root = $('asset-list'); root.replaceChildren();
+    state.watchlist.forEach((symbol,index) => {
+      const item = ASSETS[symbol], row = element('div','asset-manage-row'), name = element('span','',item.name+' · '+symbol);
+      const controls = element('span','asset-manage-actions');
+      for (const [label,action,disabled] of [['↑','up',index === 0],['↓','down',index === state.watchlist.length-1],['移除','remove',state.watchlist.length === 1]]) {
+        const button = element('button','button subtle',label); button.type='button'; button.disabled=disabled;
+        button.setAttribute('aria-label',action === 'remove' ? '移除 '+symbol : (action === 'up' ? '上移 ' : '下移 ')+symbol);
+        button.addEventListener('click',()=>{
+          if (action === 'remove') {
+            state.watchlist.splice(index,1);
+            if (state.symbol === symbol) selectSymbol(state.watchlist[0]);
+            if (Object.hasOwn(customAssets,symbol)) {delete customAssets[symbol];delete ASSETS[symbol];}
+          } else {
+            const target = index + (action === 'up' ? -1 : 1);
+            [state.watchlist[index],state.watchlist[target]] = [state.watchlist[target],state.watchlist[index]];
+          }
+          saveOptions(); renderWatchlist(); renderWatchManager();
+        }); controls.append(button);
+      }
+      row.append(name,controls); root.append(row);
+    });
+    $('asset-count').textContent = state.watchlist.length + ' / 16 個自選標的';
+  }
   function chartURL() { return 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(asset().chart); }
   function actionText(value) { return ({ LONG: '偏多條件', SHORT: '偏空條件', WAIT: '保持觀望' })[value] || '保持觀望'; }
   function formatNumber(value, currency) {
@@ -418,7 +484,7 @@
     state.dailyDue = Date.now() + 900000;
     $('rules-status').textContent = '正在更新已完成日線…';
     try {
-      const result = await callResearch((state.rulesEnabled?'/v1/rules':'/v1/levels')+'?symbol='+encodeURIComponent(symbol),{signal:controller.signal});
+      const result = await callResearch((state.rulesEnabled?'/v1/rules':'/v1/levels')+'?'+new URLSearchParams({symbol,kind:asset().kind}),{signal:controller.signal});
       if (request !== state.dailyRequest || symbol !== state.symbol) return;
       state.rules = result.market ? result : null;
       state.dailySymbol = symbol; state.dailyLevels = result.market?.dailyLevels || result.dailyLevels || null; state.dailyChecked = true;
@@ -565,7 +631,7 @@
     updateControls();
     $('analysis-status').textContent = '研究處理中'; setTone($('analysis-status'), 'neutral');
     try {
-      const body = { symbol, interval, mode, debate };
+      const body = { symbol, kind:asset().kind, interval, mode, debate };
       if (apiKey !== null) body.apiKey = apiKey;
       const result = await callResearch('/v1/research', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
       if (request !== state.researchRequest || symbol !== state.symbol || interval !== state.interval) return;
@@ -605,15 +671,37 @@
   $('revoke-external').addEventListener('click', revokeExternal);
   $('privacy-revoke').addEventListener('click', revokeExternal);
   $('clear-preferences').addEventListener('click', () => {
-    remove(OPTIONS_KEY); state.symbol = 'BTCUSDT'; state.interval = '15m'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all'; state.rulesEnabled = true; window.dispatchEvent(new Event('marketpilot:asset'));
-    clearResearch(); loadDailyLevels(); $('privacy-status').textContent = '已清除本站圖表偏好並恢復預設。外部資料同意狀態維持不變。'; renderWidgets();
+    remove(OPTIONS_KEY); state.watchlist = [...DEFAULT_WATCHLIST]; state.symbol = 'BTCUSDT'; state.interval = '15m'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all'; state.rulesEnabled = true;
+    for (const symbol of Object.keys(customAssets)) {delete customAssets[symbol];delete ASSETS[symbol];}
+    window.dispatchEvent(new Event('marketpilot:asset')); clearResearch(); renderWatchlist(); renderWatchManager(); loadDailyLevels();
+    $('privacy-status').textContent = '已清除本站圖表與自選標的偏好，並恢復預設。外部資料同意狀態維持不變。'; renderWidgets();
   });
-  document.querySelectorAll('[data-symbol]').forEach(button => button.addEventListener('click', () => {
-    if (!Object.hasOwn(ASSETS, button.dataset.symbol)) return;
-    if (state.symbol === button.dataset.symbol) return;
-    state.symbol = button.dataset.symbol; window.dispatchEvent(new Event('marketpilot:asset')); clearResearch(); applyChartOptions(); loadDailyLevels();
-  }));
-  document.querySelectorAll('[data-market-filter]').forEach(button => button.addEventListener('click', () => { state.marketFilter = button.dataset.marketFilter; saveOptions(); updateControls(); }));
+  document.querySelectorAll('[data-market-filter]').forEach(button => button.addEventListener('click', () => { state.marketFilter = button.dataset.marketFilter; saveOptions(); renderWatchlist(); }));
+  $('asset-kind').addEventListener('change',()=>{$('asset-symbol-input').placeholder=$('asset-kind').value === 'crypto' ? '例如 DOGEUSDT' : '例如 MSFT';});
+  $('asset-add-form').addEventListener('submit',async event=>{
+    event.preventDefault(); const symbol=$('asset-symbol-input').value.toUpperCase().trim(), kind=$('asset-kind').value;
+    const status=$('asset-add-status'), button=$('asset-add-button');
+    status.textContent='';
+    if (state.watchlist.includes(symbol)) {status.textContent='這個標的已在自選清單。';return;}
+    if (state.watchlist.length >= 16) {status.textContent='最多追蹤 16 個標的；請先移除一個。';return;}
+    if (kind === 'crypto' ? !/^[A-Z0-9]{2,16}USDT$/.test(symbol) : !/^[A-Z0-9^][A-Z0-9.^-]{0,19}$/.test(symbol)) {status.textContent='請輸入完整有效代號，例如 DOGEUSDT、MSFT 或 2454.TW。';return;}
+    if (Object.hasOwn(ASSETS,symbol) && ASSETS[symbol].kind === kind) {
+      state.watchlist.push(symbol); state.marketFilter='all'; selectSymbol(symbol); saveOptions(); renderWatchlist(); renderWatchManager();
+      $('asset-symbol-input').value='';status.textContent='已加入 '+symbol+'。';return;
+    }
+    if (!state.allowed) {status.textContent='請先同意載入市場資料，再驗證新標的。';return;}
+    button.disabled=true;button.textContent='驗證中…';status.textContent='正在確認標的與歷史日線；可能需要數秒。';
+    try {
+      const data=await callResearch('/v1/assets/lookup?'+new URLSearchParams({symbol,kind}));
+      if (data.symbol !== symbol || data.kind !== kind || typeof data.chart !== 'string' || !/^[A-Z0-9.:^-]{1,45}$/.test(data.chart) ||
+        typeof data.label !== 'string' || !data.label || data.label.length>80 || typeof data.currency !== 'string' || !/^[A-Z]{3,4}$/.test(data.currency) ||
+        typeof data.zone !== 'string' || data.zone.length>60) throw new Error('市場來源回傳的標的資料格式不符。');
+      const entry={name:data.label,badge:symbol,market:kind === 'crypto' ? 'Binance · 加密貨幣現貨' : '全球股票 · 自選',chart:data.chart,kind,currency:data.currency,zone:data.zone};
+      ASSETS[symbol]=entry;customAssets[symbol]={symbol,...entry};state.watchlist.push(symbol);state.marketFilter='all';
+      selectSymbol(symbol);saveOptions();renderWatchlist();renderWatchManager();$('asset-symbol-input').value='';status.textContent='已驗證並加入 '+symbol+'。';
+    } catch(error) {status.textContent=error instanceof Error ? error.message : '無法驗證標的，請稍後再試。';}
+    finally {button.disabled=false;button.textContent='驗證並加入';}
+  });
   document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval) && state.interval !== button.dataset.interval) { state.interval = button.dataset.interval; clearResearch(); applyChartOptions(); } }));
   $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); else renderDailyOnly(); } });
   $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; if (!state.researchConsent) clearResearch(); else updateControls(); });
@@ -634,14 +722,14 @@
   $('retry-service').addEventListener('click',async()=>{const button=$('retry-service');button.disabled=true;try{await checkService(true);}finally{button.disabled=false;}});
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);
-  document.querySelectorAll('[data-dialog]').forEach(button => button.addEventListener('click', () => $(button.dataset.dialog).showModal()));
+  document.querySelectorAll('[data-dialog]').forEach(button => button.addEventListener('click', () => {if(button.dataset.dialog==='assets-dialog')renderWatchManager();$(button.dataset.dialog).showModal();}));
   document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   document.querySelectorAll('dialog').forEach(dialog => dialog.addEventListener('click', event => {
     if (event.target !== dialog) return;
     const box = dialog.getBoundingClientRect();
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
   }));
-  updateControls();
+  renderWatchlist();
   renderDailyOnly();
   checkService();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkService(); });

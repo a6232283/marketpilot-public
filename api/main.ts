@@ -10,10 +10,12 @@ import {
   INTERVALS,
   PUBLIC_ASSETS,
   PublicError,
+  type Asset,
   asPositiveInt,
   clampText,
   completedDailyBars,
   finiteNumber,
+  normalizeAssetIdentity,
   normalizeResearchRequest,
   parseMcpPayload,
   recentFlashes,
@@ -132,7 +134,7 @@ async function readJSON(request: Request) {
   }
 }
 
-async function providerJSON(url: string, options: RequestInit = {}, limit = MAX_PROVIDER_BYTES) {
+async function providerJSON(url: string, options: RequestInit = {}, limit = MAX_PROVIDER_BYTES, symbolLookup = false) {
   let answer: Response;
   try {
     const headers = new Headers(options.headers);
@@ -142,6 +144,7 @@ async function providerJSON(url: string, options: RequestInit = {}, limit = MAX_
     throw new PublicError('資料來源暫時無法連線。', 502);
   }
   if (answer.status === 429) throw new PublicError('資料來源暫時限流，請稍後再試。', 429, 60);
+  if (symbolLookup && (answer.status === 400 || answer.status === 404)) throw new PublicError('找不到這個標的，請確認交易所代號。');
   if (!answer.ok) throw new PublicError('資料來源暫時無法取得。', 502);
   const raw = await readLimited(answer.body, limit);
   try {
@@ -162,9 +165,44 @@ async function cached<T>(name: string, seconds: number, factory: () => Promise<T
   return value;
 }
 
-async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS, force = false) {
+// Exact-symbol lookup uses fixed upstream hosts and never follows a visitor URL.
+// Cache metadata so switching, rules, AI and backtests share one validated asset.
+async function resolveAsset(symbol: string, kind: 'crypto' | 'stock'): Promise<Asset> {
+  const fixed = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS] as Asset | undefined;
+  if (fixed) return fixed;
+  return await cached('asset-v2/' + kind + '/' + symbol, 6 * 3600, async () => {
+    if (kind === 'crypto') {
+      const data = await providerJSON('https://data-api.binance.vision/api/v3/exchangeInfo?' + new URLSearchParams({symbol}), {}, MAX_PROVIDER_BYTES, true) as JsonRecord;
+      const entries = Array.isArray(data.symbols) ? data.symbols : [];
+      const pair = entries.find(value => value && typeof value === 'object' && value.symbol === symbol) as JsonRecord | undefined;
+      if (!pair || pair.status !== 'TRADING' || pair.isSpotTradingAllowed !== true || pair.quoteAsset !== 'USDT') throw new PublicError('僅支援可交易的 Binance USDT 現貨交易對。');
+      return {kind, label: clampText(pair.baseAsset, 24) || symbol, currency: 'USDT', chart: 'BINANCE:' + symbol, zone:'Etc/UTC'};
+    }
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?' + new URLSearchParams({interval:'1d',range:'6mo',includePrePost:'false'});
+    const data = await providerJSON(url, {}, MAX_PROVIDER_BYTES, true) as JsonRecord;
+    const container = data.chart && typeof data.chart === 'object' ? data.chart as JsonRecord : {};
+    const result = Array.isArray(container.result) ? container.result[0] as JsonRecord | undefined : undefined;
+    const meta = result?.meta && typeof result.meta === 'object' ? result.meta as JsonRecord : {};
+    const type = String(meta.instrumentType || '');
+    if (!['EQUITY','ETF'].includes(type) || !Array.isArray(result?.timestamp) || result.timestamp.length < 60) {
+      throw new PublicError('僅支援有至少 60 根日 K 的股票或 ETF。');
+    }
+    const currency = String(meta.currency || '').toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) throw new PublicError('市場來源缺少此標的的報價幣別。');
+    const zone = String(meta.exchangeTimezoneName || 'Etc/UTC');
+    if (!/^[A-Za-z_]+\/[A-Za-z_]+$/.test(zone) && zone !== 'Etc/UTC') throw new PublicError('市場來源缺少有效交易所時區。');
+    const exchange = String(meta.exchangeName || '').toUpperCase();
+    const suffix = symbol.includes('.') ? symbol.split('.').at(-1) : undefined;
+    const prefix = ({TW:'TWSE',TWO:'TPEX',HK:'HKEX',T:'TSE',SS:'SSE',SZ:'SZSE',DE:'XETR',L:'LSE'} as Record<string,string>)[suffix || '']
+      || ({NMS:'NASDAQ',NGM:'NASDAQ',NCM:'NASDAQ',NYQ:'NYSE',ASE:'AMEX'} as Record<string,string>)[exchange];
+    const chartSymbol = suffix && prefix ? symbol.slice(0,-suffix.length-1).replace(/^0+(?=\d)/,'') : symbol;
+    return {kind, label: clampText(meta.longName || meta.shortName || symbol, 80) || symbol, currency, chart: prefix ? prefix + ':' + chartSymbol : symbol, zone};
+  });
+}
+
+async function marketSnapshot(symbol: string, asset: Asset, interval: keyof typeof INTERVALS, force = false) {
   const ttl = asset.kind === 'crypto' ? 30 : 60;
-  const snapshot = await cached('market/daily-v3/' + symbol, ttl, async () => {
+  const snapshot = await cached('market/daily-v4/' + asset.kind + '/' + symbol, ttl, async () => {
     const fetchedAt = Math.floor(Date.now() / 1000);
     const step = 86400;
     if (asset.kind === 'crypto') {
@@ -213,7 +251,7 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
   return snapshot;
 }
 
-async function ruleSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS = '15m', force = false) {
+async function ruleSnapshot(symbol: string, asset: Asset, interval: keyof typeof INTERVALS = '15m', force = false) {
   const market = await marketSnapshot(symbol, asset, interval, force);
   // Rows are already closed daily bars; derive the levels from that same snapshot.
   const last20 = market.bars.slice(-20);
@@ -225,9 +263,8 @@ async function ruleSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof 
 
 let activeBacktests = 0;
 async function backtest(request: Request) {
-  const input = await readJSON(request), symbol = String(input.symbol || '').toUpperCase().trim();
-  const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
-  if (!asset) throw new PublicError('只支援公開頁面的精選標的。');
+  const input = await readJSON(request);
+  const {symbol,kind} = normalizeAssetIdentity(input.symbol,input.kind);
   const cfg = normalizeBacktest(input);
   const identity = await hashClient(request);
   await consume(['marketpilot','rate','backtest',identity,Math.floor(Date.now()/600000)],4,600000,1);
@@ -235,6 +272,7 @@ async function backtest(request: Request) {
   if (activeBacktests >= 2) throw new PublicError('回測正在執行中，請稍後再試。',429,30);
   activeBacktests++;
   try {
+    const asset = await resolveAsset(symbol,kind);
     const history = await dailyHistory(symbol,asset,cfg.start,cfg.end,providerJSON);
     return {...simulate(history.bars,cfg),symbol,kind:asset.kind,source:history.source,timezone:history.zone,adjusted:history.adjusted,generatedAt:Math.floor(Date.now()/1000)};
   } finally {activeBacktests--;}
@@ -449,8 +487,9 @@ async function research(request: Request) {
   const geminiKey = input.apiKey ?? setting('GEMINI_API_KEY');
   if (!geminiKey) throw new PublicError('請改用自備 Gemini API key；站方 AI 額度尚未啟用。', 503);
   await protectResearch(request);
-  const market = await marketSnapshot(input.symbol, input.asset, input.interval);
-  const technical = (await ruleSnapshot(input.symbol,input.asset,input.interval)).market;
+  const asset = await resolveAsset(input.symbol,input.kind);
+  const market = await marketSnapshot(input.symbol, asset, input.interval);
+  const technical = (await ruleSnapshot(input.symbol,asset,input.interval)).market;
   let flashes: Flashes;
   try {
     flashes = await jin10Flashes();
@@ -486,7 +525,7 @@ async function research(request: Request) {
   } else {
     ai = validateAssessment(await geminiJSON(base, ASSESSMENT_SCHEMA, geminiKey, visitorKey), sourceIds);
   }
-  const latest = await marketSnapshot(input.symbol, input.asset, input.interval, true);
+  const latest = await marketSnapshot(input.symbol, asset, input.interval, true);
   if (latest.barEndTime !== market.barEndTime || latest.quoteTime < market.quoteTime || Math.abs(latest.price - market.price) > technical.indicators.atr14 * 0.5) {
     throw new PublicError('AI 分析期間行情或已收盤 K 線已變動，請以最新資料重新研究。', 409);
   }
@@ -519,19 +558,27 @@ async function handleRequest(request: Request) {
       const flashes = await jin10Flashes();
       return response(request, { available: flashes.available, fetchedAt: flashes.fetchedAt, count: flashes.items.length, source: '金十官方 MCP（僅作 AI 研究上下文）' });
     }
+    if (url.pathname === '/v1/assets/lookup' && request.method === 'GET') {
+      const {symbol,kind} = normalizeAssetIdentity(url.searchParams.get('symbol'),url.searchParams.get('kind'));
+      const identity = await hashClient(request);
+      await consume(['marketpilot','rate','asset-lookup',identity,Math.floor(Date.now()/600000)],8,600000,1);
+      await consume(['marketpilot','rate','asset-lookup-global',Math.floor(Date.now()/3600000)],90,3600000,1);
+      const asset = await resolveAsset(symbol,kind);
+      await marketSnapshot(symbol,asset,'15m');
+      return response(request,{symbol,kind,label:asset.label,currency:asset.currency,chart:asset.chart,
+        zone:asset.zone || (kind === 'crypto' ? 'Etc/UTC' : 'America/New_York')});
+    }
     if (url.pathname === '/v1/levels' && request.method === 'GET') {
-      const symbol = (url.searchParams.get('symbol') || '').toUpperCase().trim();
-      const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
-      if (!asset) throw new PublicError('只支援公開頁面的精選標的。', 400);
+      const {symbol,kind} = normalizeAssetIdentity(url.searchParams.get('symbol'),url.searchParams.get('kind'));
       await protectLevels(request);
+      const asset = await resolveAsset(symbol,kind);
       const result = await ruleSnapshot(symbol,asset);
       return response(request, { symbol, dailyLevels: result.market.dailyLevels, checkedAt:result.generatedAt });
     }
     if (url.pathname === '/v1/rules' && request.method === 'GET') {
-      const symbol = (url.searchParams.get('symbol') || '').toUpperCase().trim();
-      const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
-      if (!asset) throw new PublicError('只支援公開頁面的精選標的。');
+      const {symbol,kind} = normalizeAssetIdentity(url.searchParams.get('symbol'),url.searchParams.get('kind'));
       await protectLevels(request);
+      const asset = await resolveAsset(symbol,kind);
       return response(request, await ruleSnapshot(symbol,asset));
     }
     if (url.pathname === '/v1/backtest' && request.method === 'POST') return response(request, await backtest(request));

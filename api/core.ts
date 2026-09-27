@@ -1,8 +1,8 @@
 /**
  * Pure, provider-independent logic for the public Deno research service.
- * It deliberately accepts only the fixed public asset universe and never
- * accepts a visitor-provided URL, model name, tool name, account, or trading
- * instruction. A visitor may provide one Gemini key for the current request.
+ * Visitor symbols are syntax-checked here and resolved against fixed market
+ * providers by the service. No visitor URL, model, tool, account, or trading
+ * instruction is accepted. A visitor may provide one Gemini key per request.
  */
 
 export const MAX_NEWS_ITEMS = 6;
@@ -16,7 +16,7 @@ export const PUBLIC_ASSETS = Object.freeze({
   '2330.TW': { kind: 'stock', label: '台積電', currency: 'TWD', chart: 'TWSE:2330' },
   '0700.HK': { kind: 'stock', label: '騰訊控股', currency: 'HKD', chart: 'HKEX:700' },
   '7203.T': { kind: 'stock', label: '豐田汽車', currency: 'JPY', chart: 'TSE:7203' }
-});
+} as const);
 
 export const INTERVALS = Object.freeze({
   '5m': { crypto: '5m', stock: '5m', label: '5 分鐘' },
@@ -27,7 +27,7 @@ export const INTERVALS = Object.freeze({
 
 export const INTERVAL_SECONDS = Object.freeze({ '5m': 300, '15m': 900, '30m': 1800, '1h': 3600 });
 
-export type Asset = (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS];
+export type Asset = Readonly<{ kind: 'crypto' | 'stock'; label: string; currency: string; chart: string; zone?: string }>;
 export type Interval = keyof typeof INTERVALS;
 export type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type ResearchMode = 'standard' | 'agents';
@@ -63,13 +63,25 @@ export function finiteNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+export function normalizeAssetIdentity(rawSymbol: unknown, rawKind?: unknown) {
+  const symbol = typeof rawSymbol === 'string' ? rawSymbol.toUpperCase().trim() : '';
+  const known = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS] as Asset | undefined;
+  const kind = rawKind === undefined || rawKind === null || rawKind === ''
+    ? known?.kind ?? (symbol.endsWith('USDT') ? 'crypto' : 'stock') : rawKind;
+  if (kind !== 'crypto' && kind !== 'stock') throw new PublicError('請選擇股票或加密貨幣。');
+  if (known && known.kind !== kind) throw new PublicError('標的類別與代號不符。');
+  if (kind === 'crypto' ? !/^[A-Z0-9]{2,16}USDT$/.test(symbol) : !/^[A-Z0-9^][A-Z0-9.^-]{0,19}$/.test(symbol)) {
+    throw new PublicError('標的代號格式不正確；加密貨幣請輸入 Binance USDT 現貨交易對，股票請輸入交易所代號。');
+  }
+  return { symbol, kind: kind as 'crypto' | 'stock' };
+}
+
 export function normalizeResearchRequest(value: unknown) {
   const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const symbol = typeof record.symbol === 'string' ? record.symbol.toUpperCase().trim() : '';
-  const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
+  const { symbol, kind } = normalizeAssetIdentity(record.symbol, record.kind);
   const interval = typeof record.interval === 'string' ? record.interval : '';
-  if (!asset || !Object.hasOwn(INTERVALS, interval)) {
-    throw new PublicError('只支援精選標的與 5、15、30 分鐘或 1 小時週期。');
+  if (!Object.hasOwn(INTERVALS, interval)) {
+    throw new PublicError('只支援 5、15、30 分鐘或 1 小時週期。');
   }
   if (record.debate !== undefined && typeof record.debate !== 'boolean') {
     throw new PublicError('多空辯論設定格式不正確。');
@@ -84,7 +96,7 @@ export function normalizeResearchRequest(value: unknown) {
     }
     apiKey = record.apiKey;
   }
-  return { symbol, asset, interval: interval as Interval, mode: mode as ResearchMode, debate: record.debate === true, apiKey };
+  return { symbol, kind, interval: interval as Interval, mode: mode as ResearchMode, debate: record.debate === true, apiKey };
 }
 
 export function cleanBars(rows: unknown[]) {
