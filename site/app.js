@@ -329,7 +329,7 @@
         element('small', '', '同一模型分角色審查；不含未提供的基本面、社群或個人持倉資料，並非原版 TradingAgents 框架。'));
       wrap.append(details);
     }
-    const meta = element('p', 'analysis-meta', (data.mode === 'rules' ? '日線規則 · 未呼叫 AI' : data.mode === 'agents' ? '多角色研究' : '標準研究') + ' · 透明規則：' + actionText(result.ruleAction) + (data.mode === 'rules' ? ' · 事件未審核' : ' · 事件風險：' + (result.eventRisk || 'UNKNOWN')) + ' · 日 K 時間：' + formatTime(market.barEndTime) + ' · 報價：' + formatTime(market.quoteTime));
+    const meta = element('p', 'analysis-meta', (data.mode === 'rules' ? '日線規則 · 未呼叫 AI' : data.mode === 'agents' ? '多角色研究' : '標準研究') + ' · 透明規則：' + actionText(result.ruleAction) + (data.mode === 'rules' ? ' · 事件未審核' : ' · 事件風險：' + (result.eventRisk || 'UNKNOWN')) + ' · 已完成日 K 開始：' + formatTime(market.barTime) + ' · 報價：' + formatTime(market.quoteTime));
     wrap.append(meta); root.append(wrap);
     $('analysis-status').textContent = actionText(action); setTone($('analysis-status'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
     $('metric-ai').textContent = actionText(action); setTone($('metric-ai'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
