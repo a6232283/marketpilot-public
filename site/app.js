@@ -347,7 +347,7 @@
     $('metric-news').textContent = data.news?.available ? '已納入' : '暫未使用'; setTone($('metric-news'), data.news?.available ? 'up' : 'neutral');
     $('metric-news-detail').textContent = data.news?.available ? '受限事件資料 ' + data.news.count + ' 則 · ' + formatTime(data.news.fetchedAt) : '未提供可用事件脈絡';
     if (data.mode !== 'rules') {
-    $('news-state').textContent = data.news?.available ? 'AI 事件脈絡已更新' : '金十資料暫不可用'; setTone($('news-state'), data.news?.available ? 'up' : 'neutral');
+    $('jin10-state').textContent = data.news?.available ? 'AI 事件脈絡已更新' : '來源暫不可用'; setTone($('jin10-state'), data.news?.available ? 'up' : 'neutral');
     $('jin10-note').textContent = data.news?.available ? '金十 MCP 事件資料已在本輪以受限方式提供給 AI，未傳回或重製快訊全文。資料時間：' + formatTime(data.news.fetchedAt) + '。' : '本輪未取得可用金十事件資料；AI 已以市場快照進行保守研究，事件風險會反映在結論中。';
     }
     drawStrategy(market, result, data.generatedAt);
@@ -594,10 +594,10 @@
     const timeout = setTimeout(() => controller.abort(), 35000);
     try {
       const data = await callResearch('/v1/news', { signal: controller.signal });
-      $('news-state').textContent = data.available ? 'AI 事件脈絡可使用' : '金十資料暫不可用'; setTone($('news-state'), data.available ? 'up' : 'neutral');
+      $('jin10-state').textContent = data.available ? 'AI 事件脈絡可使用' : '來源暫不可用'; setTone($('jin10-state'), data.available ? 'up' : 'neutral');
       $('jin10-note').textContent = data.available ? '金十 MCP 可供受限 AI 研究使用；目前 ' + data.count + ' 則事件脈絡，時間：' + formatTime(data.fetchedAt) + '。公開頁面不重製快訊全文。' : '金十 MCP 公開研究來源目前暫不可用；圖表與 TradingView 新聞仍可依你的同意載入。';
     } catch (error) { $('jin10-note').textContent = controller.signal.aborted ? '事件資料檢查逾時，請稍後重試。' : error instanceof Error ? error.message : '無法確認金十公開研究來源。'; }
-    finally { clearTimeout(timeout); button.disabled = false; button.textContent = '更新來源狀態'; }
+    finally { clearTimeout(timeout); button.disabled = false; button.textContent = '檢查 AI 來源'; }
   }
 
   $('allow-external').addEventListener('click', allowExternal);
