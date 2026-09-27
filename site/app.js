@@ -62,6 +62,8 @@
     researchTimer: null,
     researchStartedAt: 0,
     serviceReady: false,
+    servicePaused: document.documentElement.dataset.servicePaused === 'quota',
+    serviceDue: 0,
     serviceChecked: false,
     sharedAi: false,
     keySource: 'shared',
@@ -138,7 +140,10 @@
     document.querySelectorAll('input[name="gemini-source"]').forEach(input => { input.checked = input.value === state.keySource; });
     $('run-analysis').disabled = state.busy || !state.researchConsent || !state.serviceReady || !keyReady;
     $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : !state.serviceReady ? '公開研究服務尚不可用' : !keyReady && state.keySource === 'own' ? '請輸入有效的 Gemini API key' : !keyReady ? '站方額度尚未啟用' : state.analysisMode === 'agents' ? '執行多角色研究 ↗' : 'AI 深度評估 ↗';
-    if (!configuredApi) {
+    $('service-notice').hidden = !state.servicePaused;
+    if (state.servicePaused) {
+      $('service-state').textContent = '主機額度暫停'; setTone($('service-state'),'error');
+    } else if (!configuredApi) {
       $('service-state').textContent = '公開研究服務部署中'; setTone($('service-state'), 'neutral');
       $('analysis-status').textContent = '服務尚未設定'; setTone($('analysis-status'), 'neutral');
     } else if (!state.serviceChecked) {
@@ -356,7 +361,7 @@
 
   function renderDailyOnly() {
     if (state.lastResearch) return;
-    if (state.rulesEnabled && state.rules?.market.symbol === state.symbol && Date.now()/1000-state.rules.generatedAt<=300) { renderRules(); return; }
+    if (state.rulesEnabled && state.rules?.market.symbol === state.symbol && Date.now()/1000-state.rules.generatedAt<=1200) { renderRules(); return; }
     const chart = $('strategy-svg');
     chart.replaceChildren(svg('rect', { width: 1000, height: 260, fill: '#111923' }));
     const cards = $('strategy-cards'); cards.replaceChildren();
@@ -407,17 +412,18 @@
 
   async function loadDailyLevels() {
     if (!state.allowed || !configuredApi) return;
+    if (state.servicePaused) { $('rules-status').textContent='主機額度暫停；服務恢復後自動啟用規則。'; return; }
     const request = ++state.dailyRequest, symbol = state.symbol;
     const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),30000);
-    state.dailyDue = Date.now() + 300000;
+    state.dailyDue = Date.now() + 900000;
     $('rules-status').textContent = '正在更新已完成日線…';
     try {
       const result = await callResearch((state.rulesEnabled?'/v1/rules':'/v1/levels')+'?symbol='+encodeURIComponent(symbol),{signal:controller.signal});
       if (request !== state.dailyRequest || symbol !== state.symbol) return;
       state.rules = result.market ? result : null;
       state.dailySymbol = symbol; state.dailyLevels = result.market?.dailyLevels || result.dailyLevels || null; state.dailyChecked = true;
-      state.dailyDue = Date.now() + (state.rulesEnabled ? (asset().kind==='crypto'?60000:120000) : 1800000);
-      $('rules-status').textContent = state.rulesEnabled ? '已更新 · 已收盤日 K · '+(asset().kind==='crypto'?'60':'120')+' 秒檢查 · 零 AI 呼叫' : '規則引擎已關閉；保留 20 日線';
+      state.dailyDue = Date.now() + (state.rulesEnabled ? 900000 : 1800000);
+      $('rules-status').textContent = state.rulesEnabled ? '已更新 · 已收盤日 K · 15 分鐘檢查 · 零 AI 呼叫' : '規則引擎已關閉；保留 20 日線';
       if (state.lastResearch && !state.busy && state.rules) {
         const old = state.lastResearch;
         if (Date.now()/1000-old.generatedAt>300 || old.market.barTime!==result.market.barTime || Math.abs(old.market.price-result.market.price)>result.market.indicators.atr14*.5) {
@@ -426,8 +432,8 @@
       }
     } catch(error) {
       if (request !== state.dailyRequest || symbol !== state.symbol) return;
-      state.rules=null;state.dailySymbol=symbol;state.dailyLevels=null;state.dailyChecked=true;state.dailyDue=Date.now()+300000;
-      $('rules-status').textContent = (error instanceof Error?error.message:'行情暫不可用')+' · 5 分鐘後再檢查';
+      state.rules=null;state.dailySymbol=symbol;state.dailyLevels=null;state.dailyChecked=true;state.dailyDue=Date.now()+900000;
+      $('rules-status').textContent = (error instanceof Error?error.message:'行情暫不可用')+' · 15 分鐘後再檢查';
       if (state.lastResearch && !state.busy) clearResearch();
       if (!state.lastResearch) { $('analysis').replaceChildren(element('p','analysis-empty','規則資料暫不可用，已停止顯示先前的規則與價位。')); $('metric-rule').textContent='資料不足'; $('metric-score').textContent='等待有效資料'; $('metric-price').textContent='—'; }
     } finally { clearTimeout(timeout); }
@@ -512,6 +518,7 @@
   }
 
   async function callResearch(path, options = {}) {
+    if (state.servicePaused) throw new Error('公開後端因主機額度暫停，請等候站方恢復服務；本機功能不受影響。');
     if (!configuredApi) throw new Error('公開研究服務尚未完成部署。');
     let answer;
     try { answer = await fetch(configuredApi + path, { mode: 'cors', credentials: 'omit', cache: 'no-store', ...options }); } catch { throw new Error('無法連線到公開研究服務，請稍後再試。'); }
@@ -521,8 +528,8 @@
     return data;
   }
 
-  async function checkService() {
-    if (!configuredApi || Date.now() - (state.lastServiceCheck || 0) < 30000) return;
+  async function checkService(force = false) {
+    if (!configuredApi || Date.now() - (state.lastServiceCheck || 0) < 30000 || (!force && Date.now()<state.serviceDue)) return;
     state.lastServiceCheck = Date.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
@@ -531,8 +538,9 @@
       const status = answer.ok ? await answer.json() : {};
       state.serviceReady = answer.ok && status.ready === true;
       state.sharedAi = status.ai === true;
+      if (state.serviceReady && state.servicePaused) { state.servicePaused=false;state.dailyDue=0;loadDailyLevels(); }
     } catch { state.serviceReady = false; state.sharedAi = false; }
-    finally { clearTimeout(timeout); state.serviceChecked = true; updateControls(); }
+    finally { clearTimeout(timeout); state.serviceChecked = true; state.serviceDue=Date.now()+(state.servicePaused?3600000:900000); updateControls(); }
   }
 
   async function runAnalysis() {
@@ -623,6 +631,7 @@
   $('rules-enabled').addEventListener('change',()=>{state.rulesEnabled=$('rules-enabled').checked;state.rules=null;saveOptions();clearResearch();loadDailyLevels();});
   $('refresh-rules').addEventListener('click',()=>{clearResearch();loadDailyLevels();});
   window.MarketPilotBacktest.mount({root:$('backtest-panel'),getAsset:()=>({symbol:state.symbol,...asset()}),allowed:()=>state.allowed,request:(body,signal)=>callResearch('/v1/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal})});
+  $('retry-service').addEventListener('click',async()=>{const button=$('retry-service');button.disabled=true;try{await checkService(true);}finally{button.disabled=false;}});
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);
   document.querySelectorAll('[data-dialog]').forEach(button => button.addEventListener('click', () => $(button.dataset.dialog).showModal()));
@@ -637,6 +646,6 @@
   checkService();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkService(); });
   if (configuredApi) setInterval(() => { if (!document.hidden) checkService(); }, 60000);
-  if (configuredApi) setInterval(() => { if (!document.hidden && state.allowed && Date.now() >= state.dailyDue) loadDailyLevels(); }, 15000);
+  if (configuredApi) setInterval(() => { if (!document.hidden) { if(state.lastResearch && !state.busy && Date.now()/1000-state.lastResearch.generatedAt>300) { clearResearch();$('analysis-error').textContent='先前 AI 快照超過 5 分鐘，請重新研究。'; } if(state.allowed && !state.servicePaused && Date.now()>=state.dailyDue)loadDailyLevels(); } }, 15000);
   if (state.allowed) { renderWidgets(); loadDailyLevels(); }
 })();
