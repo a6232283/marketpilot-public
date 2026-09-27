@@ -9,9 +9,9 @@
   <title>MarketPilot — 公開市場研究</title>
   <meta name="description" content="MarketPilot 公開市場研究：加密貨幣與全球股票 K 線、新聞、受限 AI 研究與風險資訊。僅供一般資訊參考，非投資建議。">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css?v=68a884667adb">
+  <link rel="stylesheet" href="./style.css?v=12a5ea80d73c">
   <script src="./backtest-ui.js?v=1b912cd7b9f9" defer></script>
-  <script src="./app.js?v=0c7555336069" defer></script>
+  <script src="./app.js?v=7283beecaadf" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳至主要內容</a>
@@ -34,7 +34,7 @@
     </aside>
 
     <section class="workspace">
-      <header class="topbar"><div class="breadcrumb"><span>MarketPilot</span><span>／</span><strong id="crumb-symbol">BTCUSDT</strong></div><nav class="quick-nav" aria-label="頁面導覽"><a href="#market-panel">行情</a><a href="#strategy-panel">策略</a><a href="#analysis-panel">AI 研究</a><a href="#backtest-panel">回測</a><a href="#news-panel">新聞</a></nav><div class="top-actions"><span id="service-state" class="live-chip neutral">服務檢查中</span><button class="button subtle" data-dialog="settings-dialog">設定</button></div></header>
+      <header class="topbar"><div class="breadcrumb"><span>MarketPilot</span><span>／</span><strong id="crumb-symbol">BTCUSDT</strong></div><nav class="quick-nav" aria-label="頁面導覽"><a href="#market-panel">行情</a><a href="#strategy-panel">策略</a><a href="#analysis-panel">AI 研究</a><a href="#backtest-panel">回測</a><a href="#news-panel">新聞</a><a href="#jin10-panel">金十</a></nav><div class="top-actions"><span id="service-state" class="live-chip neutral">服務檢查中</span><button class="button subtle" data-dialog="settings-dialog">設定</button></div></header>
 
       <main id="main">
         <section class="page-heading"><div><p class="eyebrow">PUBLIC MARKET WORKSPACE</p><h1>市場研究<span>工作台</span></h1><p>選標的、讀行情與策略條件，再比較 AI 研究和歷史回測。</p></div></section>
@@ -78,7 +78,16 @@
 
         <section class="panel backtest-panel" id="backtest-panel" aria-label="歷史策略回測"></section>
         <section class="lower-grid">
-          <section class="panel research-library" id="news-panel" aria-labelledby="news-title"><div class="panel-head"><div><div class="section-title"><h2 id="news-title">市場焦點</h2><span id="news-state" class="pill neutral">需外部資料同意</span></div><p class="section-subtitle">TradingView 新聞 · 事件資料另受限供 AI 使用</p></div><button id="refresh-news" class="button subtle">更新來源狀態</button></div><div id="news-widget" class="news-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◌</div><strong>新聞尚未載入</strong><p>同意外部資料後，會由 TradingView 提供公開市場新聞。</p><button class="button quiet" data-allow-external>載入新聞</button></div></div><div class="panel-note" id="jin10-note">金十 MCP Token 不會傳到瀏覽器。公開研究服務僅固定使用快訊作事件脈絡，不提供任意 MCP 工具或全文下載。</div></section>
+          <section class="panel research-library" id="news-panel" aria-labelledby="news-title">
+            <div class="panel-head"><div><div class="section-title"><h2 id="news-title">市場焦點</h2><span class="pill neutral">TradingView</span></div><p class="section-subtitle">公開新聞由 TradingView 官方元件提供</p></div></div>
+            <div id="news-widget" class="news-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◌</div><strong>新聞尚未載入</strong><p>同意外部資料後，會由 TradingView 提供公開市場新聞。</p><button class="button quiet" data-allow-external>載入新聞</button></div></div>
+            <div class="jin10-source" id="jin10-panel" aria-labelledby="jin10-title">
+              <div class="jin10-head"><div><p class="eyebrow">OFFICIAL NEWS SOURCE</p><h3 id="jin10-title">金十數據快訊與文章</h3></div><span id="jin10-state" class="pill neutral">AI 來源未檢查</span></div>
+              <p>前往金十官方網站閱讀即時快訊與文章。本站的金十 MCP 只在後端提供 AI 事件脈絡；公開頁不轉載快訊或文章內容。</p>
+              <div class="jin10-actions"><a class="button subtle" href="https://www.jin10.com/" target="_blank" rel="noopener noreferrer">開啟金十官方新聞 ↗</a><button id="refresh-news" class="button subtle">檢查 AI 來源</button></div>
+              <p class="jin10-note" id="jin10-note" role="status">金十 Token 留在站方研究後端；檢查 AI 來源需先在 AI 研究區確認資料使用方式。</p>
+            </div>
+          </section>
           <section class="panel overview-panel" aria-labelledby="overview-title"><div class="panel-head"><div><div class="section-title"><h2 id="overview-title">全球市場概覽</h2><span class="pill">TradingView</span></div><p class="section-subtitle">加密貨幣與全球股票的公開概覽</p></div></div><div id="overview-widget" class="overview-list widget-slot"><div class="widget-placeholder compact-placeholder"><div class="placeholder-art">◫</div><strong>市場概覽尚未載入</strong><p>資料來源連線由你控制，啟用前不會載入外部元件。</p><button class="button quiet" data-allow-external>載入概覽</button></div></div></section>
         </section>
 

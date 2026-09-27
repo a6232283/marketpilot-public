@@ -586,7 +586,7 @@
   }
 
   async function refreshNewsStatus() {
-    if (!state.researchConsent) { $('analysis-error').textContent = '請先確認研究資料的使用方式，再檢查金十公開研究來源。'; return; }
+    if (!state.researchConsent) { $('jin10-state').textContent = '需研究同意'; $('jin10-note').textContent = '請先在 AI 研究區確認資料使用方式，再檢查金十 MCP 是否可供 AI 使用。官方新聞連結不需要這項同意。'; return; }
     const button = $('refresh-news');
     if (button.disabled) return;
     button.disabled = true; button.textContent = '檢查中…';
@@ -596,7 +596,7 @@
       const data = await callResearch('/v1/news', { signal: controller.signal });
       $('jin10-state').textContent = data.available ? 'AI 事件脈絡可使用' : '來源暫不可用'; setTone($('jin10-state'), data.available ? 'up' : 'neutral');
       $('jin10-note').textContent = data.available ? '金十 MCP 可供受限 AI 研究使用；目前 ' + data.count + ' 則事件脈絡，時間：' + formatTime(data.fetchedAt) + '。公開頁面不重製快訊全文。' : '金十 MCP 公開研究來源目前暫不可用；圖表與 TradingView 新聞仍可依你的同意載入。';
-    } catch (error) { $('jin10-note').textContent = controller.signal.aborted ? '事件資料檢查逾時，請稍後重試。' : error instanceof Error ? error.message : '無法確認金十公開研究來源。'; }
+    } catch (error) { $('jin10-state').textContent = '檢查失敗'; setTone($('jin10-state'), 'neutral'); $('jin10-note').textContent = controller.signal.aborted ? '事件資料檢查逾時，請稍後重試。' : error instanceof Error ? error.message : '無法確認金十公開研究來源。'; }
     finally { clearTimeout(timeout); button.disabled = false; button.textContent = '檢查 AI 來源'; }
   }
 

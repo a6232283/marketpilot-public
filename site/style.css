@@ -31,3 +31,11 @@ dialog{width:min(720px,calc(100vw - 32px));max-height:85vh;padding:0;border:1px 
 .analysis-options>*:not(summary){margin-top:12px}
 @media(max-width:930px){.research-grid{grid-template-columns:minmax(0,1fr)}.research-grid>.chart-panel,.research-grid>.strategy-panel,.research-grid>.insight-panel{grid-column:1;grid-row:auto}.topbar{gap:10px}.breadcrumb{display:none}.quick-nav{flex:1}}
 @media(max-width:610px){.quick-nav a{font-size:11px;padding:7px 8px}.top-actions{flex-shrink:0}.page-heading{margin-bottom:14px}.page-heading h1{font-size:30px}}
+.jin10-source{scroll-margin-top:78px;padding:18px 20px;border-top:1px solid #2a3948;background:linear-gradient(135deg,#14202a,#111923)}
+.jin10-head{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.jin10-head h3{font-size:16px;margin:2px 0 0;color:#e6f1fb}
+.jin10-source>p{color:#aebfd0;font-size:12px;line-height:1.7;margin:11px 0}
+.jin10-actions{display:flex;flex-wrap:wrap;gap:9px;margin:13px 0}
+.jin10-actions .button{display:inline-flex;align-items:center;text-decoration:none}
+.jin10-source .jin10-note{border-top:1px solid #30404c;padding-top:10px;margin-bottom:0;color:#91a7b9;font-size:11px}
+@media(max-width:610px){.jin10-source{padding:15px}.jin10-head{align-items:flex-start;flex-direction:column}.jin10-actions .button{justify-content:center}}
