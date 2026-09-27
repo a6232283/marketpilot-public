@@ -278,7 +278,7 @@
     const market = data.market || {};
     if (market.dailyLevels) {
       state.dailySymbol = state.symbol; state.dailyLevels = market.dailyLevels;
-      state.dailyChecked = true; state.dailyDue = Date.now() + 1800000;
+      state.dailyChecked = true;
     }
     const root = $('analysis'); root.replaceChildren();
     const wrap = element('div', 'analysis-result');
@@ -356,7 +356,7 @@
 
   function renderDailyOnly() {
     if (state.lastResearch) return;
-    if (state.rulesEnabled && state.rules?.market.symbol === state.symbol) { renderRules(); return; }
+    if (state.rulesEnabled && state.rules?.market.symbol === state.symbol && Date.now()/1000-state.rules.generatedAt<=300) { renderRules(); return; }
     const chart = $('strategy-svg');
     chart.replaceChildren(svg('rect', { width: 1000, height: 260, fill: '#111923' }));
     const cards = $('strategy-cards'); cards.replaceChildren();
@@ -428,6 +428,7 @@
       if (request !== state.dailyRequest || symbol !== state.symbol) return;
       state.rules=null;state.dailySymbol=symbol;state.dailyLevels=null;state.dailyChecked=true;state.dailyDue=Date.now()+300000;
       $('rules-status').textContent = (error instanceof Error?error.message:'行情暫不可用')+' · 5 分鐘後再檢查';
+      if (state.lastResearch && !state.busy) clearResearch();
       if (!state.lastResearch) { $('analysis').replaceChildren(element('p','analysis-empty','規則資料暫不可用，已停止顯示先前的規則與價位。')); $('metric-rule').textContent='資料不足'; $('metric-score').textContent='等待有效資料'; $('metric-price').textContent='—'; }
     } finally { clearTimeout(timeout); }
     if (!state.lastResearch) renderDailyOnly();
@@ -596,8 +597,8 @@
   $('revoke-external').addEventListener('click', revokeExternal);
   $('privacy-revoke').addEventListener('click', revokeExternal);
   $('clear-preferences').addEventListener('click', () => {
-    remove(OPTIONS_KEY); state.symbol = 'BTCUSDT'; state.interval = '15m'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all';
-    clearResearch(); $('privacy-status').textContent = '已清除本站圖表偏好並恢復預設。外部資料同意狀態維持不變。'; renderWidgets();
+    remove(OPTIONS_KEY); state.symbol = 'BTCUSDT'; state.interval = '15m'; state.timezone = 'Asia/Taipei'; state.marketFilter = 'all'; state.rulesEnabled = true; window.dispatchEvent(new Event('marketpilot:asset'));
+    clearResearch(); loadDailyLevels(); $('privacy-status').textContent = '已清除本站圖表偏好並恢復預設。外部資料同意狀態維持不變。'; renderWidgets();
   });
   document.querySelectorAll('[data-symbol]').forEach(button => button.addEventListener('click', () => {
     if (!Object.hasOwn(ASSETS, button.dataset.symbol)) return;
