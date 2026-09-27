@@ -272,6 +272,10 @@
   function renderAnalysis(data) {
     const result = data.assessment || {};
     const market = data.market || {};
+    if (market.dailyLevels) {
+      state.dailySymbol = state.symbol; state.dailyLevels = market.dailyLevels;
+      state.dailyChecked = true; state.dailyDue = Date.now() + 1800000;
+    }
     const root = $('analysis'); root.replaceChildren();
     const wrap = element('div', 'analysis-result');
     const action = result.action || 'WAIT';
@@ -353,7 +357,7 @@
     if (!daily || !Number.isFinite(Number(daily.support)) || !Number.isFinite(Number(daily.resistance))) {
       $('strategy-badge').textContent = state.dailyChecked && state.dailySymbol === state.symbol ? '日線暫不可用' : '等待日線';
       setTone($('strategy-badge'), 'neutral');
-      $('strategy-message').textContent = state.allowed ? '正在檢查最近 20 根已完成日 K；資料來源不足或限流時不顯示歷史水平線。AI 評估需另行手動執行。' : '同意載入市場資料後，即可查看 20 日支撐與壓力；AI 評估需另行手動執行。';
+      $('strategy-message').textContent = !state.allowed ? '同意載入市場資料後，即可查看 20 日支撐與壓力；AI 評估需另行手動執行。' : state.dailyChecked && state.dailySymbol === state.symbol ? '目前日線資料不足或來源限流，暫不顯示 20 日歷史水平線；稍後會自動再檢查。' : '正在檢查最近 20 根已完成日 K；AI 評估需另行手動執行。';
       cards.append(element('div', 'strategy-no-plan', '20 日支撐／壓力暫無可用完整日線，不會以分鐘 K 線替代。'));
       $('strategy-time').textContent = '尚無完整日線時間';
       chart.setAttribute('aria-label', '20 日日線資料尚未可用');
@@ -564,11 +568,11 @@
   document.querySelectorAll('[data-symbol]').forEach(button => button.addEventListener('click', () => {
     if (!Object.hasOwn(ASSETS, button.dataset.symbol)) return;
     if (state.symbol === button.dataset.symbol) return;
-    state.symbol = button.dataset.symbol; clearResearch(); applyChartOptions();
+    state.symbol = button.dataset.symbol; clearResearch(); applyChartOptions(); loadDailyLevels();
   }));
   document.querySelectorAll('[data-market-filter]').forEach(button => button.addEventListener('click', () => { state.marketFilter = button.dataset.marketFilter; saveOptions(); updateControls(); }));
   document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval) && state.interval !== button.dataset.interval) { state.interval = button.dataset.interval; clearResearch(); applyChartOptions(); } }));
-  $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); } });
+  $('timezone').addEventListener('change', event => { if (ZONES.includes(event.target.value)) { state.timezone = event.target.value; applyChartOptions(); if (state.lastResearch) renderAnalysis(state.lastResearch); else renderDailyOnly(); } });
   $('research-consent').addEventListener('change', event => { state.researchConsent = event.target.checked; if (!state.researchConsent) clearResearch(); else updateControls(); });
   $('ai-debate').addEventListener('change', clearResearch);
   $('analysis-mode').addEventListener('change', () => { state.analysisMode = $('analysis-mode').value === 'agents' ? 'agents' : 'standard'; clearResearch(); });
@@ -591,8 +595,10 @@
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
   }));
   updateControls();
+  renderDailyOnly();
   checkService();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkService(); });
   if (configuredApi) setInterval(() => { if (!document.hidden) checkService(); }, 60000);
-  if (state.allowed) renderWidgets();
+  if (configuredApi) setInterval(() => { if (!document.hidden && state.allowed && Date.now() >= state.dailyDue) loadDailyLevels(); }, 60000);
+  if (state.allowed) { renderWidgets(); loadDailyLevels(); }
 })();
