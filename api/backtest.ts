@@ -21,8 +21,30 @@ export type BacktestConfig = {
   slippagePct: number;
   shortApr: number;
   atrProtection: boolean;
+  fastPeriod: number;
+  slowPeriod: number;
+  rsiPeriod: number;
+  rsiLower: number;
+  rsiUpper: number;
+  breakoutPeriod: number;
+  bbPeriod: number;
+  bbStdDev: number;
+  macdFast: number;
+  macdSlow: number;
+  macdSignal: number;
+  momentumPeriod: number;
+  atrStopMult: number;
+  atrTargetMult: number;
 };
-export const STRATEGIES = ["combined", "ema", "rsi", "breakout"];
+export const STRATEGIES = ["combined", "buyhold", "ema", "sma", "rsi", "breakout", "bollinger", "macd", "momentum"];
+const PARAMS: Record<string, [number, number, number]> = {
+  fastPeriod: [20, 2, 100], slowPeriod: [50, 3, 200],
+  rsiPeriod: [14, 2, 50], rsiLower: [30, 5, 45], rsiUpper: [70, 55, 95],
+  breakoutPeriod: [20, 5, 200], bbPeriod: [20, 5, 200], bbStdDev: [2, .5, 4],
+  macdFast: [12, 2, 100], macdSlow: [26, 3, 200], macdSignal: [9, 2, 50],
+  momentumPeriod: [60, 5, 200], atrStopMult: [1.5, .5, 10], atrTargetMult: [3, .5, 20],
+};
+const INTEGERS = new Set(["fastPeriod", "slowPeriod", "rsiPeriod", "breakoutPeriod", "bbPeriod", "macdFast", "macdSlow", "macdSignal", "momentumPeriod"]);
 const DAY = 86400;
 const dayStamp = (date: string) => Date.parse(date + "T00:00:00Z") / 1000;
 
@@ -65,17 +87,33 @@ export function normalizeBacktest(
     !STRATEGIES.includes(strategy) || !["long", "both"].includes(direction) ||
     (p.atrProtection !== undefined && typeof p.atrProtection !== "boolean")
   ) throw new PublicError("回測策略設定不正確。");
+  const params = Object.fromEntries(Object.entries(PARAMS).map(([name, [fallback, min, max]]) => {
+    const value = number(name, fallback, min, max);
+    if (INTEGERS.has(name) && !Number.isInteger(value)) throw new PublicError("策略週期必須為整數。");
+    return [name, value];
+  })) as Record<string, number>;
+  if (params.fastPeriod >= params.slowPeriod || params.macdFast >= params.macdSlow || params.rsiLower >= 50 || params.rsiUpper <= 50 || params.rsiLower >= params.rsiUpper) {
+    throw new PublicError("策略週期或門檻設定不正確；快線需短於慢線，RSI 門檻需分列 50 兩側。");
+  }
   return {
     start,
     end,
     strategy,
-    direction,
+    direction: strategy === "buyhold" ? "long" : direction,
     initial: number("initial", 10000, 100, 1e9),
     feePct: number("feePct", .1, 0, 2),
     slippagePct: number("slippagePct", .05, 0, 2),
     shortApr: number("shortApr", 5, 0, 100),
-    atrProtection: p.atrProtection !== false,
+    atrProtection: strategy === "buyhold" ? false : p.atrProtection !== false,
+    ...params as Omit<BacktestConfig, "start" | "end" | "strategy" | "direction" | "initial" | "feePct" | "slippagePct" | "shortApr" | "atrProtection">,
   };
+}
+
+export function warmupBars(cfg: BacktestConfig) {
+  if (cfg.strategy === "buyhold") return 0;
+  const key: Record<string, keyof BacktestConfig> = {ema:"slowPeriod",sma:"slowPeriod",rsi:"rsiPeriod",breakout:"breakoutPeriod",bollinger:"bbPeriod",macd:"macdSlow",momentum:"momentumPeriod"};
+  const period = key[cfg.strategy] ? Number(cfg[key[cfg.strategy]]) : 0;
+  return Math.max(60, period + (cfg.strategy === "macd" ? cfg.macdSignal : 1));
 }
 
 export async function dailyHistory(
@@ -184,9 +222,12 @@ export async function dailyHistory(
   };
 }
 
-export function strategySignal(history: Bar[], strategy: string, side: number) {
+export function strategySignal(history: Bar[], config: BacktestConfig | string, side: number) {
+  const cfg = typeof config === "string" ? normalizeBacktest({start:"2023-01-01",end:"2023-01-03",strategy:config}, Date.parse("2024-01-01") / 1000) : config;
+  const strategy = cfg.strategy;
   const bars = history.slice(-260), closes = bars.map((b) => b.close);
-  if (bars.length < 60) return 0;
+  if (strategy === "buyhold") return 1;
+  if (bars.length < warmupBars(cfg)) return 0;
   if (strategy === "combined") {
     if (!(atr(bars)! > 0)) return 0;
     const action = technicalAssessment(
@@ -198,21 +239,44 @@ export function strategySignal(history: Bar[], strategy: string, side: number) {
     return action === "LONG" ? 1 : action === "SHORT" ? -1 : 0;
   }
   if (strategy === "ema") {
-    const delta = ema(closes, 20)! - ema(closes, 50)!;
+    const delta = ema(closes, cfg.fastPeriod)! - ema(closes, cfg.slowPeriod)!;
     return Math.abs(delta) < 1e-8 ? 0 : Math.sign(delta);
   }
+  if (strategy === "sma") {
+    const mean = (period: number) => closes.slice(-period).reduce((a,b)=>a+b,0)/period;
+    const delta = mean(cfg.fastPeriod)-mean(cfg.slowPeriod);
+    return Math.abs(delta)<1e-8 ? 0 : Math.sign(delta);
+  }
   if (strategy === "rsi") {
-    const value = rsi(closes)!;
-    if (value < 30) return 1;
-    if (value > 70) return -1;
+    const value = rsi(closes, cfg.rsiPeriod)!;
+    if (value < cfg.rsiLower) return 1;
+    if (value > cfg.rsiUpper) return -1;
     return side === 1 && value < 50 ? 1 : side === -1 && value > 50 ? -1 : 0;
   }
-  const prior = bars.slice(-21, -1), close = closes.at(-1)!;
-  return close > Math.max(...prior.map((b) => b.high))
-    ? 1
-    : close < Math.min(...prior.map((b) => b.low))
-    ? -1
-    : side;
+  if (strategy === "breakout") {
+    const prior = bars.slice(-cfg.breakoutPeriod-1, -1), close = closes.at(-1)!;
+    return close > Math.max(...prior.map((b) => b.high)) ? 1 : close < Math.min(...prior.map((b) => b.low)) ? -1 : side;
+  }
+  if (strategy === "bollinger") {
+    const values = closes.slice(-cfg.bbPeriod), mean = values.reduce((a,b)=>a+b,0)/values.length;
+    const deviation = Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/values.length);
+    const lower = mean-cfg.bbStdDev*deviation, upper = mean+cfg.bbStdDev*deviation, close = closes.at(-1)!;
+    if (close<lower) return 1;
+    if (close>upper) return -1;
+    return side===1 && close<mean ? 1 : side===-1 && close>mean ? -1 : 0;
+  }
+  if (strategy === "momentum") {
+    const delta = closes.at(-1)!-closes.at(-cfg.momentumPeriod-1)!;
+    return Math.abs(delta)<1e-8 ? 0 : Math.sign(delta);
+  }
+  if (strategy === "macd") {
+    let fast=closes[0],slow=closes[0];
+    const af=2/(cfg.macdFast+1),aslow=2/(cfg.macdSlow+1),diffs:number[]=[];
+    for (const close of closes) {fast=close*af+fast*(1-af);slow=close*aslow+slow*(1-aslow);diffs.push(fast-slow);}
+    const delta=diffs.at(-1)!-ema(diffs,cfg.macdSignal)!;
+    return Math.abs(delta)<1e-8 ? 0 : Math.sign(delta);
+  }
+  return 0;
 }
 
 export function simulate(
@@ -222,9 +286,10 @@ export function simulate(
 ) {
   const bars = rawBars.filter((b) => b.date <= cfg.end);
   const first = bars.findIndex((b) => b.date >= cfg.start);
-  if (first < 60) {
+  const needed = warmupBars(cfg);
+  if (first < needed) {
     throw new PublicError(
-      "開始日前需要至少 60 根完整日 K 暖機；請選擇較晚日期。",
+      `開始日前需要至少 ${needed} 根完整日 K 暖機；請選擇較晚日期或縮短週期。`,
     );
   }
   const selected = bars.slice(first);
@@ -264,7 +329,7 @@ export function simulate(
     position = null;
   };
   for (let i = first; i < bars.length; i++) {
-    const b = bars[i], prev = bars[i - 1];
+    const b = bars[i], prev = bars[i - 1] || b;
     let protectedExit = false;
     if (position?.side === -1) {
       const cost = position.qty * prev.close * cfg.shortApr / 100 *
@@ -290,7 +355,7 @@ export function simulate(
     }
     let target = signal(
       bars.slice(Math.max(0, i - 260), i),
-      cfg.strategy,
+      cfg,
       position?.side || 0,
     );
     if (cfg.direction === "long" && target === -1) target = 0;
@@ -301,13 +366,13 @@ export function simulate(
       const entry = b.open * (1 + target * slip),
         qty = cash / (entry * (1 + fee)),
         entryFee = qty * entry * fee;
-      const volatility = atr(bars.slice(Math.max(0, i - 260), i))!;
+      const volatility = cfg.atrProtection ? atr(bars.slice(Math.max(0, i - 260), i))! : 0;
       if (
         cfg.atrProtection &&
         (!(volatility > 0) ||
           Math.min(
-              entry - target * volatility * 1.5,
-              entry + target * volatility * 3,
+              entry - target * volatility * cfg.atrStopMult,
+              entry + target * volatility * cfg.atrTargetMult,
             ) <= 0)
       ) skipped++;
       else {
@@ -320,8 +385,8 @@ export function simulate(
           entryFee,
           borrow: 0,
           date: b.date,
-          stop: entry - target * volatility * 1.5,
-          target: entry + target * volatility * 3,
+          stop: entry - target * volatility * cfg.atrStopMult,
+          target: entry + target * volatility * cfg.atrTargetMult,
         };
       }
     }
@@ -363,6 +428,8 @@ export function simulate(
   const final = equity.at(-1)!.equity,
     gains = trades.reduce((s, t) => s + Math.max(0, t.netPnl), 0),
     losses = -trades.reduce((s, t) => s + Math.min(0, t.netPnl), 0);
+  const days=(dayStamp(equity.at(-1)!.date)-dayStamp(selected[0].date))/DAY;
+  const annualized=final>0 && days>=30 ? (Math.pow(final/cfg.initial,365.25/days)-1)*100 : null;
   return {
     config: cfg,
     actualStart: selected[0].date,
@@ -373,13 +440,14 @@ export function simulate(
       initial: cfg.initial,
       final,
       netReturn: (final / cfg.initial - 1) * 100,
+      annualizedReturn: annualized,
       benchmarkReturn: (equity.at(-1)!.benchmark / cfg.initial - 1) * 100,
       maxDrawdown,
       tradeCount: trades.length,
-      winRate: trades.length
+      winRate: trades.length && cfg.strategy !== "buyhold"
         ? trades.filter((t) => t.netPnl > 0).length / trades.length * 100
         : null,
-      profitFactor: losses ? gains / losses : null,
+      profitFactor: losses && cfg.strategy !== "buyhold" ? gains / losses : null,
       totalCosts,
       exposurePct: invested / equity.length * 100,
     },
@@ -400,6 +468,7 @@ export function simulate(
           "做空為 1 倍名目本金模擬；融券可得性、保證金追繳與真實資金費率未建模。",
         ]
         : []),
+      ...(cfg.strategy === "buyhold" ? ["買進持有只有一筆期末交易，勝率與獲利因子不適合用來評估。"] : []),
       ...(selected[0].date > cfg.start || selected.at(-1)!.date < cfg.end
         ? ["實際交易日期依來源和休市日調整，請核對結果列出的範圍。"]
         : []),
