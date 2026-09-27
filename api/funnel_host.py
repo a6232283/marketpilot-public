@@ -23,7 +23,9 @@ import tempfile
 import time
 import urllib.request
 
-BASE = Path(__file__).resolve().parent
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE = SCRIPT_DIR.parent if SCRIPT_DIR.name == 'api' and (SCRIPT_DIR / 'main.ts').is_file() else SCRIPT_DIR
+API = BASE / 'deno-api' if (BASE / 'deno-api/main.ts').is_file() else BASE / 'api'
 PRIVATE = BASE / '.private'
 
 
@@ -167,20 +169,20 @@ def environment():
 
 
 def checked_command():
-    checked = run([DENO, 'check', '--config', str(BASE / 'deno-api/deno.json'),
-                   str(BASE / 'deno-api/main.ts')], 60)
+    checked = run([DENO, 'check', '--config', str(API / 'deno.json'),
+                   str(API / 'main.ts')], 60)
     if checked.returncode:
         raise DeployError('公開 API 語法檢查未通過，保留既有執行版本。')
-    return [DENO, 'run', '--no-prompt', '--config', str(BASE / 'deno-api/deno.json'),
+    return [DENO, 'run', '--no-prompt', '--config', str(API / 'deno.json'),
         '--allow-env=' + ','.join(ENV_NAMES),
         '--allow-net=127.0.0.1:' + str(PORT) + ',data-api.binance.vision:443,'
         'query1.finance.yahoo.com:443,mcp.jin10.com:443,generativelanguage.googleapis.com:443',
         '--allow-read=' + str(RUNTIME), '--allow-write=' + str(RUNTIME),
-        str(BASE / 'deno-api/main.ts')]
+        str(API / 'main.ts')]
 
 
 def fingerprint():
-    paths = [BASE / 'deno-api' / name for name in ('main.ts', 'core.ts', 'backtest.ts', 'deno.json', 'deno.lock')]
+    paths = [API / name for name in ('main.ts', 'core.ts', 'backtest.ts', 'deno.json', 'deno.lock')]
     paths += [STATE, PRIVATE / 'keys.json', PRIVATE / 'settings.json', PRIVATE / 'integrations.json']
     digest = hashlib.sha256()
     for path in paths:
