@@ -15,6 +15,7 @@
 !/api/backtest.ts
 !/api/deno.json
 !/api/deno.lock
+!/api/funnel_host.py
 !/.github/
 !/.github/workflows/
 !/.github/workflows/pages.yml

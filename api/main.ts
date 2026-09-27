@@ -1,7 +1,7 @@
 /*
- * Deno Deploy public research service. GitHub builds this file from api/.
- * Secrets are read only from Deno Deploy
- * Secrets. A visitor can supply their own Gemini key for a single research
+ * Public research service, usable on Deno Deploy or a private Deno runtime.
+ * Owner credentials are read only from the server environment.
+ * A visitor can supply their own Gemini key for a single research
  * request, but cannot select providers, models, MCP tools, URLs, or trading actions.
  */
 import {
@@ -81,7 +81,7 @@ function failure(request: Request, error: unknown) {
 
 async function database() {
   try {
-    kvPromise ??= Deno.openKv();
+    kvPromise ??= Deno.openKv(setting('MARKETPILOT_KV_PATH') || undefined);
     return await kvPromise;
   } catch {
     throw new PublicError('公開服務的安全限制尚未完成設定。', 503);
@@ -93,15 +93,21 @@ async function readLimited(stream: ReadableStream<Uint8Array> | null, maximum: n
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; void reader.cancel().catch(() => {}); }, 15_000);
+  let ended = false;
   try {
     while (true) {
       const next = await reader.read();
-      if (next.done) break;
+      if (timedOut) throw new PublicError('資料傳輸逾時，請重試。', 408);
+      if (next.done) { ended = true; break; }
       total += next.value.byteLength;
       if (total > maximum) throw new PublicError('請求或來源回應過大，已停止處理。', 413);
       chunks.push(next.value);
     }
   } finally {
+    clearTimeout(timer);
+    if (!ended) void reader.cancel().catch(() => {});
     reader.releaseLock();
   }
   const result = new Uint8Array(total);
@@ -496,7 +502,7 @@ async function research(request: Request) {
   };
 }
 
-export async function handler(request: Request) {
+async function handleRequest(request: Request) {
   try {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') {
@@ -536,4 +542,42 @@ export async function handler(request: Request) {
   }
 }
 
-if (import.meta.main) Deno.serve(handler);
+let activeRequests = 0;
+let activeAI = 0;
+
+export async function handler(request: Request) {
+  const funnelHost = setting('FUNNEL_HOST');
+  const isAI = new URL(request.url).pathname === '/v1/research' && request.method === 'POST';
+  // In self-hosted mode only the loopback Tailscale reverse proxy is admitted.
+  // Tailscale v1.102.4 replaces X-Forwarded-For with the actual source address
+  // and removes visitor-supplied Tailscale identity headers (serve.go).
+  if (funnelHost && (new URL(request.url).host !== funnelHost ||
+      request.headers.get('x-forwarded-host') !== funnelHost ||
+      request.headers.get('x-forwarded-proto') !== 'https' ||
+      request.headers.get('tailscale-funnel-request') !== '?1' ||
+      !/^[0-9a-fA-F:.]{3,45}$/.test(request.headers.get('x-forwarded-for') || ''))) {
+    return response(request, { error: '請透過公開 HTTPS 入口連線。' }, 403);
+  }
+  if (activeRequests >= 8 || (isAI && activeAI >= 2)) {
+    return response(request, { error: '研究服務忙碌中，請稍後再試。' }, 503, { 'Retry-After': 15 });
+  }
+  activeRequests += 1;
+  if (isAI) activeAI += 1;
+  try {
+    // Persistent station-wide limit cannot be bypassed by changing IP headers.
+    if (funnelHost && sameOrigin(request) && request.method !== 'OPTIONS') {
+      await consume(['marketpilot', 'rate', 'station', Math.floor(Date.now() / 60_000)], 120, 60_000, 1);
+    }
+    return await handleRequest(request);
+  } catch (error) {
+    return failure(request, error);
+  } finally {
+    activeRequests -= 1;
+    if (isAI) activeAI -= 1;
+  }
+}
+
+if (import.meta.main) Deno.serve({
+  hostname: setting('MARKETPILOT_BIND_HOST') || undefined,
+  port: asPositiveInt(setting('PORT'), 8000, 1024, 65535)
+}, handler);

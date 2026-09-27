@@ -8,9 +8,10 @@ import sys
 
 SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg', 'backtest-ui.js'})
 DENO_FILES = frozenset({'main.ts', 'core.ts', 'deno.json', 'deno.lock', 'backtest.ts'})
+HOST_FILES = frozenset({'api/funnel_host.py'})
 HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES - {'backtest-ui.js'}} | {
     '.github/workflows/pages.yml', 'check_public.py', 'README.md', '.gitignore'})
-REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'site/' + p for p in SITE_FILES} | {'api/' + p for p in DENO_FILES} | {'LICENSE'})
+REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'site/' + p for p in SITE_FILES} | {'api/' + p for p in DENO_FILES} | HOST_FILES | {'LICENSE'})
 MAX_FILE = 1_000_000
 MAX_TOTAL = 4_000_000
 RULES = [
@@ -42,6 +43,10 @@ def check_bytes(name, data):
         # The reviewed Deno service makes fixed outbound provider calls. Only
         # the static browser bundle is prohibited from containing API routes.
         if label == 'backend API route' and (name.startswith('api/') or name == '.gitignore'):
+            continue
+        # The audited host supervisor must name its private local directory and
+        # loopback-only API address. This exception applies to exactly one file.
+        if label in {'private data path', 'local service'} and name == 'api/funnel_host.py':
             continue
         if re.search(pattern, text):
             raise UnsafeRelease('Release blocked: ' + label + ' detected. Content withheld.')

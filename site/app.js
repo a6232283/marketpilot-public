@@ -42,7 +42,7 @@
     const raw = document.documentElement.dataset.apiBase || '';
     try {
       const value = new URL(raw);
-      return value.protocol === 'https:' && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.]){1,2}deno[.](?:dev|net)$/i.test(value.hostname) ? value.origin : '';
+      return value.protocol === 'https:' && !value.username && !value.password && !value.port && /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?[.]){1,2}deno[.](?:dev|net)|marketpilot(?:-[0-9]+)?[.][a-z0-9-]+[.]ts[.]net)$/i.test(value.hostname) ? value.origin : '';
     } catch { return ''; }
   })();
   let saved = {};
@@ -62,7 +62,7 @@
     researchTimer: null,
     researchStartedAt: 0,
     serviceReady: false,
-    servicePaused: document.documentElement.dataset.servicePaused === 'quota',
+    servicePaused: document.documentElement.dataset.servicePaused === 'offline',
     serviceDue: 0,
     serviceChecked: false,
     sharedAi: false,
@@ -140,9 +140,9 @@
     document.querySelectorAll('input[name="gemini-source"]').forEach(input => { input.checked = input.value === state.keySource; });
     $('run-analysis').disabled = state.busy || !state.researchConsent || !state.serviceReady || !keyReady;
     $('run-analysis').textContent = state.busy ? 'AI 深度評估中…' : !state.serviceReady ? '公開研究服務尚不可用' : !keyReady && state.keySource === 'own' ? '請輸入有效的 Gemini API key' : !keyReady ? '站方額度尚未啟用' : state.analysisMode === 'agents' ? '執行多角色研究 ↗' : 'AI 深度評估 ↗';
-    $('service-notice').hidden = !state.servicePaused;
+    $('service-notice').hidden = !state.servicePaused && (!state.serviceChecked || state.serviceReady);
     if (state.servicePaused) {
-      $('service-state').textContent = '主機額度暫停'; setTone($('service-state'),'error');
+      $('service-state').textContent = '研究主機離線'; setTone($('service-state'),'error');
     } else if (!configuredApi) {
       $('service-state').textContent = '公開研究服務部署中'; setTone($('service-state'), 'neutral');
       $('analysis-status').textContent = '服務尚未設定'; setTone($('analysis-status'), 'neutral');
@@ -412,7 +412,7 @@
 
   async function loadDailyLevels() {
     if (!state.allowed || !configuredApi) return;
-    if (state.servicePaused) { $('rules-status').textContent='主機額度暫停；服務恢復後自動啟用規則。'; return; }
+    if (state.servicePaused) { $('rules-status').textContent='研究主機離線；服務恢復後自動啟用規則。'; return; }
     const request = ++state.dailyRequest, symbol = state.symbol;
     const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),30000);
     state.dailyDue = Date.now() + 900000;
@@ -518,7 +518,7 @@
   }
 
   async function callResearch(path, options = {}) {
-    if (state.servicePaused) throw new Error('公開後端因主機額度暫停，請等候站方恢復服務；本機功能不受影響。');
+    if (state.servicePaused) throw new Error('公開後端因研究主機離線，請等候站方恢復服務；本機功能不受影響。');
     if (!configuredApi) throw new Error('公開研究服務尚未完成部署。');
     let answer;
     try { answer = await fetch(configuredApi + path, { mode: 'cors', credentials: 'omit', cache: 'no-store', ...options }); } catch { throw new Error('無法連線到公開研究服務，請稍後再試。'); }
@@ -540,7 +540,7 @@
       state.sharedAi = status.ai === true;
       if (state.serviceReady && state.servicePaused) { state.servicePaused=false;state.dailyDue=0;loadDailyLevels(); }
     } catch { state.serviceReady = false; state.sharedAi = false; }
-    finally { clearTimeout(timeout); state.serviceChecked = true; state.serviceDue=Date.now()+(state.servicePaused?3600000:900000); updateControls(); }
+    finally { clearTimeout(timeout); state.serviceChecked = true; state.servicePaused = !state.serviceReady; state.serviceDue=Date.now()+(state.serviceReady?900000:60000); updateControls(); }
   }
 
   async function runAnalysis() {
