@@ -6,11 +6,11 @@ import re
 import stat
 import sys
 
-SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg'})
-DENO_FILES = frozenset({'main.ts', 'core.ts', 'deno.json', 'deno.lock'})
-HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES} | {
+SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg', 'backtest-ui.js'})
+DENO_FILES = frozenset({'main.ts', 'core.ts', 'deno.json', 'deno.lock', 'backtest.ts'})
+HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES - {'backtest-ui.js'}} | {
     '.github/workflows/pages.yml', 'check_public.py', 'README.md', '.gitignore'})
-REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'api/' + p for p in DENO_FILES} | {'LICENSE'})
+REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'site/' + p for p in SITE_FILES} | {'api/' + p for p in DENO_FILES} | {'LICENSE'})
 MAX_FILE = 1_000_000
 MAX_TOTAL = 4_000_000
 RULES = [

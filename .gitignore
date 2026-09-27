@@ -6,11 +6,13 @@
 !/site/
 !/site/index.html
 !/site/app.js
+!/site/backtest-ui.js
 !/site/style.css
 !/site/favicon.svg
 !/api/
 !/api/main.ts
 !/api/core.ts
+!/api/backtest.ts
 !/api/deno.json
 !/api/deno.lock
 !/.github/

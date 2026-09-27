@@ -58,6 +58,7 @@ export function clampText(value: unknown, maximum: number) {
 }
 
 export function finiteNumber(value: unknown) {
+  if (value === null || value === undefined || typeof value === 'boolean' || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -113,17 +114,22 @@ export function completedBars(rows: unknown[], interval: Interval, nowSeconds: n
   });
 }
 
-export function twentyDayLevels(rows: unknown[], price: number, kind: 'crypto' | 'stock', nowSeconds: number, exchangeZone = 'Etc/UTC', sessionEnd?: number) {
+export function completedDailyBars(rows: unknown[], kind: 'crypto' | 'stock', nowSeconds: number, exchangeZone = 'Etc/UTC', sessionEnd?: number) {
   const day = (stamp: number) => {
     try { return new Intl.DateTimeFormat('en-CA', { timeZone: exchangeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(stamp * 1000)); }
     catch { return new Date(stamp * 1000).toISOString().slice(0, 10); }
   };
   const today = day(nowSeconds);
-  const completed = cleanBars(rows).filter(bar => {
+  return cleanBars(rows).filter(bar => {
+    if (bar.time > nowSeconds) return false;
     if (kind === 'crypto') return bar.time + 86_400 <= nowSeconds - 2;
-    if (day(bar.time) !== today) return true;
-    return Number.isFinite(sessionEnd) && nowSeconds >= sessionEnd! + 300;
+    if (day(bar.time) < today) return true;
+    return day(bar.time) === today && Number.isFinite(sessionEnd) && day(sessionEnd!) === today && nowSeconds >= sessionEnd! + 300;
   });
+}
+
+export function twentyDayLevels(rows: unknown[], price: number, kind: 'crypto' | 'stock', nowSeconds: number, exchangeZone = 'Etc/UTC', sessionEnd?: number) {
+  const completed = completedDailyBars(rows, kind, nowSeconds, exchangeZone, sessionEnd);
   if (completed.length < 20 || nowSeconds - completed.at(-1)!.time > 10 * 86_400) return null;
   const recent = completed.slice(-20);
   return { support: rounded(Math.min(...recent.map(bar => bar.low)), price), resistance: rounded(Math.max(...recent.map(bar => bar.high)), price),
@@ -142,15 +148,15 @@ export function publishedSeconds(value: unknown) {
   return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : Number.NaN;
 }
 
-function ema(values: number[], period: number) {
+export function ema(values: number[], period: number) {
   if (values.length < period) return null;
   const multiplier = 2 / (period + 1);
-  let result = values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
-  for (const value of values.slice(period)) result += multiplier * (value - result);
+  let result = values[0];
+  for (const value of values.slice(1)) result = value * multiplier + result * (1 - multiplier);
   return result;
 }
 
-function rsi(values: number[], period = 14) {
+export function rsi(values: number[], period = 14) {
   if (values.length <= period) return null;
   let gain = 0;
   let loss = 0;
@@ -166,11 +172,11 @@ function rsi(values: number[], period = 14) {
     gain = (gain * (period - 1) + Math.max(change, 0)) / period;
     loss = (loss * (period - 1) + Math.max(-change, 0)) / period;
   }
-  if (loss === 0) return 100;
+  if (loss === 0) return gain === 0 ? 50 : 100;
   return 100 - 100 / (1 + gain / loss);
 }
 
-function atr(bars: Bar[], period = 14) {
+export function atr(bars: Bar[], period = 14) {
   if (bars.length <= period) return null;
   const ranges: number[] = [];
   for (let index = 1; index < bars.length; index += 1) {
@@ -233,8 +239,8 @@ export function priceActionDiagnosis(bars: Bar[], atrValue: number) {
     rangeLow: floor, barTime: last.time, reason };
 }
 
-export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string }, interval: Interval, quote: unknown) {
-  const cleaned = cleanBars(bars);
+export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string }, interval: Interval | '1d', quote: unknown) {
+  const cleaned = cleanBars(bars).slice(-260);
   if (cleaned.length < 60) throw new PublicError('市場資料不足，暫不產生研究結論。', 502);
   const closes = cleaned.map(bar => bar.close);
   const supplied = finiteNumber(quote);
@@ -247,21 +253,20 @@ export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string
   if (![e20, e50, rsi14, atr14, momentum, price].every(Number.isFinite) || atr14! <= 0) {
     throw new PublicError('市場資料無法通過完整性檢查。', 502);
   }
-  let score = 0;
-  if (price > e20!) score += 1; else score -= 1;
-  if (e20! > e50!) score += 1; else score -= 1;
-  if (momentum > 0) score += 1; else score -= 1;
-  if (rsi14! < 75 && rsi14! > 25) score += momentum >= 0 ? 1 : -1;
+  const sign = (value: number) => Math.abs(value) < 1e-8 ? 0 : value > 0 ? 1 : -1;
+  const score = 2 * sign(e20! - e50!) + sign(closes.at(-1)! - e20!) + sign(momentum * 100) + (rsi14! > 50 && rsi14! <= 68 ? 1 : rsi14! >= 32 && rsi14! < 50 ? -1 : 0);
   const priceAction = priceActionDiagnosis(cleaned, atr14!);
-  const ruleAction = priceAction.gate === 'WAIT' ? 'WAIT' : score >= 3 && rsi14! < 75 ? 'LONG' : score <= -3 && rsi14! > 25 ? 'SHORT' : 'WAIT';
-  const levels = ruleAction === 'LONG' ? {
+  let ruleAction = priceAction.gate === 'WAIT' ? 'WAIT' : score >= 3 && rsi14! < 75 ? 'LONG' : score <= -3 && rsi14! > 25 ? 'SHORT' : 'WAIT';
+  let levels = ruleAction === 'LONG' ? {
     entryLow: rounded(price - atr14! * 0.2, price), entryHigh: rounded(price + atr14! * 0.2, price),
     invalidation: rounded(price - atr14! * 1.5, price), targetOne: rounded(price + atr14! * 3, price), targetTwo: rounded(price + atr14! * 4.5, price)
   } : ruleAction === 'SHORT' ? {
     entryLow: rounded(price - atr14! * 0.2, price), entryHigh: rounded(price + atr14! * 0.2, price),
     invalidation: rounded(price + atr14! * 1.5, price), targetOne: rounded(price - atr14! * 3, price), targetTwo: rounded(price - atr14! * 4.5, price)
   } : null;
-  const returns = closes.slice(-60).slice(1).map((value, index) => Math.log(value / closes.slice(-60)[index]));
+  if (levels && Object.values(levels).some(value=>value<=0)) { levels=null;ruleAction='WAIT'; }
+  const recent = closes.slice(-61);
+  const returns = recent.slice(1).map((value,index)=>Math.log(value/recent[index]));
   const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
   const variance = returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, returns.length - 1);
   const width = Math.sqrt(variance) * Math.sqrt(10);
@@ -273,7 +278,7 @@ export function technicalAssessment(bars: Bar[], asset: Asset & { symbol: string
     price: rounded(price, price),
     ruleAction,
     score,
-    confidence: Math.min(100, Math.round(Math.abs(score) / 4 * 100)),
+    confidence: Math.min(100, Math.round(Math.abs(score) / 5 * 100)),
     priceAction,
     indicators: {
       ema20: rounded(e20!, price), ema50: rounded(e50!, price), rsi14: Number(rsi14!.toFixed(1)), atr14: rounded(atr14!, price),

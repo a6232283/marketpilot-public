@@ -8,12 +8,11 @@ import {
   ASSESSMENT_SCHEMA,
   CASE_SCHEMA,
   INTERVALS,
-  INTERVAL_SECONDS,
   PUBLIC_ASSETS,
   PublicError,
   asPositiveInt,
   clampText,
-  completedBars,
+  completedDailyBars,
   finiteNumber,
   normalizeResearchRequest,
   parseMcpPayload,
@@ -21,10 +20,11 @@ import {
   publishedSeconds,
   safeModel,
   technicalAssessment,
-  twentyDayLevels,
   validateAssessment,
   validateCase,
 } from './core.ts';
+
+import { normalizeBacktest, dailyHistory, simulate } from './backtest.ts';
 
 const MCP_ENDPOINT = 'https://mcp.jin10.com/mcp';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
@@ -129,7 +129,9 @@ async function readJSON(request: Request) {
 async function providerJSON(url: string, options: RequestInit = {}, limit = MAX_PROVIDER_BYTES) {
   let answer: Response;
   try {
-    answer = await fetch(url, { ...options, signal: AbortSignal.timeout(12_000) });
+    const headers = new Headers(options.headers);
+    if (!headers.has('User-Agent')) headers.set('User-Agent', 'MarketPilot/2.0');
+    answer = await fetch(url, { ...options, headers, signal: AbortSignal.timeout(12_000) });
   } catch {
     throw new PublicError('資料來源暫時無法連線。', 502);
   }
@@ -156,13 +158,13 @@ async function cached<T>(name: string, seconds: number, factory: () => Promise<T
 
 async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS, force = false) {
   const ttl = asset.kind === 'crypto' ? 30 : 60;
-  const snapshot = await cached('market/v2/' + symbol + '/' + interval, ttl, async () => {
+  const snapshot = await cached('market/daily-v3/' + symbol, ttl, async () => {
     const fetchedAt = Math.floor(Date.now() / 1000);
-    const step = INTERVAL_SECONDS[interval];
+    const step = 86400;
     if (asset.kind === 'crypto') {
-      const parameters = new URLSearchParams({ symbol, interval: INTERVALS[interval].crypto, limit: '200' });
+      const parameters = new URLSearchParams({ symbol, interval: '1d', limit: '261' });
       const rows = await providerJSON('https://data-api.binance.vision/api/v3/klines?' + parameters);
-      const bars = completedBars(Array.isArray(rows) ? rows.map(row => Array.isArray(row) ? ({ time: Number(row[0]) / 1000, open: row[1], high: row[2], low: row[3], close: row[4], volume: row[5] }) : {}) : [], interval, fetchedAt);
+      const bars = completedDailyBars(Array.isArray(rows) ? rows.map(row => Array.isArray(row) ? ({ time: Number(row[0]) / 1000, open: row[1], high: row[2], low: row[3], close: row[4], volume: row[5] }) : {}) : [], 'crypto', fetchedAt).slice(-260);
       const ticker = await providerJSON('https://data-api.binance.vision/api/v3/ticker/24hr?' + new URLSearchParams({ symbol }));
       const price = ticker && typeof ticker === 'object' ? finiteNumber((ticker as JsonRecord).lastPrice) : null;
       const closeMillis = ticker && typeof ticker === 'object' ? finiteNumber((ticker as JsonRecord).closeTime) : null;
@@ -170,10 +172,7 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
       if (bars.length < 60 || price === null || price <= 0 || quoteTime === null) throw new PublicError('市場來源尚無足夠可用 K 線或報價時間。', 502);
       return { bars, price, quoteTime, barEndTime: bars.at(-1)!.time + step, marketState: 'REGULAR', source: 'Binance 公開現貨行情', fetchedAt };
     }
-    // Five trading days has fewer than 60 hourly bars. Use a month for 1h so
-    // every permitted stock interval can be assessed with the same rule set.
-    const range = interval === '1h' ? '1mo' : '5d';
-    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?' + new URLSearchParams({ interval: INTERVALS[interval].stock, range, includePrePost: 'false' });
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?' + new URLSearchParams({ interval: '1d', range: '2y', includePrePost: 'false' });
     const data = await providerJSON(url);
     const root = data && typeof data === 'object' ? data as JsonRecord : {};
     const chartContainer = root.chart && typeof root.chart === 'object' ? root.chart as JsonRecord : {};
@@ -188,19 +187,19 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
     const trading = meta.currentTradingPeriod && typeof meta.currentTradingPeriod === 'object' ? meta.currentTradingPeriod as JsonRecord : {};
     const regular = trading.regular && typeof trading.regular === 'object' ? trading.regular as JsonRecord : {};
     const sessionEnd = finiteNumber(regular.end) ?? undefined;
-    const bars = completedBars(timestamps.map((time, index) => ({ time, open: column('open', index), high: column('high', index), low: column('low', index), close: column('close', index), volume: column('volume', index) })), interval, fetchedAt, sessionEnd);
+    const bars = completedDailyBars(timestamps.map((time, index) => ({ time, open: column('open', index), high: column('high', index), low: column('low', index), close: column('close', index), volume: column('volume', index) })), 'stock', fetchedAt, String(meta.exchangeTimezoneName || 'Etc/UTC'), sessionEnd).slice(-260);
     const price = finiteNumber(meta.regularMarketPrice);
     if (bars.length < 60 || price === null || price <= 0) throw new PublicError('市場來源尚無足夠可用 K 線資料。', 502);
     const last = bars.at(-1)!;
-    const barEndTime = sessionEnd && sessionEnd > last.time && sessionEnd < last.time + step ? sessionEnd : last.time + step;
+    const barEndTime = last.time;
     const quoteTime = finiteNumber(meta.regularMarketTime) ?? barEndTime;
     const marketState = typeof meta.marketState === 'string' ? meta.marketState : 'UNKNOWN';
     return { bars, price, quoteTime, barEndTime, marketState, source: 'Yahoo Finance 公開資料（非官方 API）', fetchedAt };
   }, force);
   const now = Math.floor(Date.now() / 1000);
-  const step = INTERVAL_SECONDS[interval];
+  const step = 86400;
   const open = asset.kind === 'crypto' || snapshot.marketState === 'REGULAR';
-  const barLimit = asset.kind === 'crypto' ? step + 120 : open ? step * 3 + 300 : 7 * 86_400;
+  const barLimit = asset.kind === 'crypto' ? step + 120 : 7 * 86_400;
   const quoteLimit = asset.kind === 'crypto' ? 600 : open ? 1_800 : 7 * 86_400;
   if (!Number.isFinite(snapshot.barEndTime) || !Number.isFinite(snapshot.quoteTime) || snapshot.barEndTime > now + 120 || snapshot.quoteTime > now + 120 || now - snapshot.barEndTime > barLimit || now - snapshot.quoteTime > quoteLimit) {
     throw new PublicError('行情或已收盤 K 線時間過期，暫不產生新研究。', 503);
@@ -208,37 +207,31 @@ async function marketSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyo
   return snapshot;
 }
 
-async function dailyLevelSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS]) {
-  return await cached('daily-levels/v1/' + symbol, 300, async () => {
-    const now = Math.floor(Date.now() / 1000);
-    try {
-      if (asset.kind === 'crypto') {
-        const rows = await providerJSON('https://data-api.binance.vision/api/v3/klines?' + new URLSearchParams({ symbol, interval: '1d', limit: '32' }));
-        const candles = Array.isArray(rows) ? rows.map(row => Array.isArray(row) ?
-          ({ time: Number(row[0]) / 1000, open: row[1], high: row[2], low: row[3], close: row[4], volume: row[5] }) : {}) : [];
-        return twentyDayLevels(candles, finiteNumber(candles.at(-1)?.close) ?? 1, 'crypto', now);
-      }
-      const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + '?' + new URLSearchParams({ interval: '1d', range: '3mo', includePrePost: 'false' });
-      const data = await providerJSON(url);
-      const root = data && typeof data === 'object' ? data as JsonRecord : {};
-      const chartContainer = root.chart && typeof root.chart === 'object' ? root.chart as JsonRecord : {};
-      const result = Array.isArray(chartContainer.result) ? chartContainer.result[0] : null;
-      const chart = result && typeof result === 'object' ? result as JsonRecord : {};
-      const indicators = chart.indicators && typeof chart.indicators === 'object' ? chart.indicators as JsonRecord : {};
-      const rawQuote = Array.isArray(indicators.quote) ? indicators.quote[0] : null;
-      const quote = rawQuote && typeof rawQuote === 'object' ? rawQuote as JsonRecord : {};
-      const timestamps = Array.isArray(chart.timestamp) ? chart.timestamp : [];
-      const column = (name: string, index: number) => Array.isArray(quote[name]) ? quote[name][index] : null;
-      const meta = chart.meta && typeof chart.meta === 'object' ? chart.meta as JsonRecord : {};
-      const trading = meta.currentTradingPeriod && typeof meta.currentTradingPeriod === 'object' ? meta.currentTradingPeriod as JsonRecord : {};
-      const regular = trading.regular && typeof trading.regular === 'object' ? trading.regular as JsonRecord : {};
-      const zone = typeof meta.exchangeTimezoneName === 'string' ? meta.exchangeTimezoneName : 'Etc/UTC';
-      const candles = timestamps.map((time, index) => ({ time, open: column('open', index), high: column('high', index), low: column('low', index), close: column('close', index), volume: column('volume', index) }));
-      return twentyDayLevels(candles, finiteNumber(candles.at(-1)?.close) ?? 1, 'stock', now, zone, finiteNumber(regular.end) ?? undefined);
-    } catch {
-      return null;
-    }
-  });
+async function ruleSnapshot(symbol: string, asset: (typeof PUBLIC_ASSETS)[keyof typeof PUBLIC_ASSETS], interval: keyof typeof INTERVALS = '15m', force = false) {
+  const market = await marketSnapshot(symbol, asset, interval, force);
+  // Rows are already closed daily bars; derive the levels from that same snapshot.
+  const last20 = market.bars.slice(-20);
+  const dailyLevels = {support: Math.min(...last20.map(b=>b.low)), resistance: Math.max(...last20.map(b=>b.high)), count:20, lastBarTime:last20.at(-1)!.time, basis:'最近 20 根已完成日 K'};
+  return {generatedAt:Math.floor(Date.now()/1000), market:{...technicalAssessment(market.bars,{...asset,symbol},interval,market.price),
+    basisInterval:'1d', basis:'已完成日 K；EMA20/50、RSI14、ATR14、20 日動能', dailyLevels,
+    quoteTime:market.quoteTime,barEndTime:market.barEndTime,source:market.source,fetchedAt:market.fetchedAt}};
+}
+
+let activeBacktests = 0;
+async function backtest(request: Request) {
+  const input = await readJSON(request), symbol = String(input.symbol || '').toUpperCase().trim();
+  const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
+  if (!asset) throw new PublicError('只支援公開頁面的精選標的。');
+  const cfg = normalizeBacktest(input);
+  const identity = await hashClient(request);
+  await consume(['marketpilot','rate','backtest',identity,Math.floor(Date.now()/600000)],4,600000,1);
+  await consume(['marketpilot','rate','backtest-global',Math.floor(Date.now()/3600000)],60,3600000,1);
+  if (activeBacktests >= 2) throw new PublicError('回測正在執行中，請稍後再試。',429,30);
+  activeBacktests++;
+  try {
+    const history = await dailyHistory(symbol,asset,cfg.start,cfg.end,providerJSON);
+    return {...simulate(history.bars,cfg),symbol,kind:asset.kind,source:history.source,timezone:history.zone,adjusted:history.adjusted,generatedAt:Math.floor(Date.now()/1000)};
+  } finally {activeBacktests--;}
 }
 
 function stripMarkup(value: unknown) {
@@ -451,11 +444,7 @@ async function research(request: Request) {
   if (!geminiKey) throw new PublicError('請改用自備 Gemini API key；站方 AI 額度尚未啟用。', 503);
   await protectResearch(request);
   const market = await marketSnapshot(input.symbol, input.asset, input.interval);
-  const dailyLevels = await dailyLevelSnapshot(input.symbol, input.asset);
-  const technical = {
-    ...technicalAssessment(market.bars, { ...input.asset, symbol: input.symbol }, input.interval, market.price),
-    dailyLevels, quoteTime: market.quoteTime, barEndTime: market.barEndTime, marketState: market.marketState
-  };
+  const technical = (await ruleSnapshot(input.symbol,input.asset,input.interval)).market;
   let flashes: Flashes;
   try {
     flashes = await jin10Flashes();
@@ -529,8 +518,17 @@ export async function handler(request: Request) {
       const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
       if (!asset) throw new PublicError('只支援公開頁面的精選標的。', 400);
       await protectLevels(request);
-      return response(request, { symbol, dailyLevels: await dailyLevelSnapshot(symbol, asset), checkedAt: Math.floor(Date.now() / 1000) });
+      const result = await ruleSnapshot(symbol,asset);
+      return response(request, { symbol, dailyLevels: result.market.dailyLevels, checkedAt:result.generatedAt });
     }
+    if (url.pathname === '/v1/rules' && request.method === 'GET') {
+      const symbol = (url.searchParams.get('symbol') || '').toUpperCase().trim();
+      const asset = PUBLIC_ASSETS[symbol as keyof typeof PUBLIC_ASSETS];
+      if (!asset) throw new PublicError('只支援公開頁面的精選標的。');
+      await protectLevels(request);
+      return response(request, await ruleSnapshot(symbol,asset));
+    }
+    if (url.pathname === '/v1/backtest' && request.method === 'POST') return response(request, await backtest(request));
     if (url.pathname === '/v1/research' && request.method === 'POST') return response(request, await research(request));
     return response(request, { error: '找不到服務。' }, 404);
   } catch (error) {

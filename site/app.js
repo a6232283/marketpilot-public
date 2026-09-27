@@ -70,13 +70,16 @@
     dailyLevels: null,
     dailyChecked: false,
     dailyRequest: 0,
-    dailyDue: 0
+    dailyDue: 0,
+    rulesEnabled: saved.rulesEnabled !== false,
+    rules: null,
+    rulesError: ''
   };
   const slots = new Map();
   let renderTimer;
 
   function saveOptions() {
-    write(OPTIONS_KEY, JSON.stringify({ symbol: state.symbol, interval: state.interval, timezone: state.timezone, marketFilter: state.marketFilter }));
+    write(OPTIONS_KEY, JSON.stringify({ symbol: state.symbol, interval: state.interval, timezone: state.timezone, marketFilter: state.marketFilter, rulesEnabled: state.rulesEnabled }));
   }
 
   function asset() { return ASSETS[state.symbol]; }
@@ -99,6 +102,7 @@
 
   function updateControls() {
     const selected = asset();
+    $('rules-enabled').checked = state.rulesEnabled;
     $('crumb-symbol').textContent = state.symbol;
     $('metric-symbol').textContent = selected.badge;
     const badge = element('span', '', selected.badge);
@@ -325,7 +329,7 @@
         element('small', '', '同一模型分角色審查；不含未提供的基本面、社群或個人持倉資料，並非原版 TradingAgents 框架。'));
       wrap.append(details);
     }
-    const meta = element('p', 'analysis-meta', (data.mode === 'agents' ? '多角色研究' : '標準研究') + ' · 透明規則：' + actionText(result.ruleAction) + ' · 事件風險：' + (result.eventRisk || 'UNKNOWN') + ' · 已收盤 K 線：' + formatTime(market.barEndTime) + ' · 報價：' + formatTime(market.quoteTime));
+    const meta = element('p', 'analysis-meta', (data.mode === 'rules' ? '日線規則 · 未呼叫 AI' : data.mode === 'agents' ? '多角色研究' : '標準研究') + ' · 透明規則：' + actionText(result.ruleAction) + (data.mode === 'rules' ? ' · 事件未審核' : ' · 事件風險：' + (result.eventRisk || 'UNKNOWN')) + ' · 日 K 時間：' + formatTime(market.barEndTime) + ' · 報價：' + formatTime(market.quoteTime));
     wrap.append(meta); root.append(wrap);
     $('analysis-status').textContent = actionText(action); setTone($('analysis-status'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
     $('metric-ai').textContent = actionText(action); setTone($('metric-ai'), ({ LONG: 'up', SHORT: 'down', WAIT: 'neutral' })[action]);
@@ -337,8 +341,10 @@
     $('metric-freshness').textContent = formatTime(market.quoteTime);
     $('metric-news').textContent = data.news?.available ? '已納入' : '暫未使用'; setTone($('metric-news'), data.news?.available ? 'up' : 'neutral');
     $('metric-news-detail').textContent = data.news?.available ? '受限事件資料 ' + data.news.count + ' 則 · ' + formatTime(data.news.fetchedAt) : '未提供可用事件脈絡';
+    if (data.mode !== 'rules') {
     $('news-state').textContent = data.news?.available ? 'AI 事件脈絡已更新' : '金十資料暫不可用'; setTone($('news-state'), data.news?.available ? 'up' : 'neutral');
     $('jin10-note').textContent = data.news?.available ? '金十 MCP 事件資料已在本輪以受限方式提供給 AI，未傳回或重製快訊全文。資料時間：' + formatTime(data.news.fetchedAt) + '。' : '本輪未取得可用金十事件資料；AI 已以市場快照進行保守研究，事件風險會反映在結論中。';
+    }
     drawStrategy(market, result, data.generatedAt);
   }
 
@@ -350,6 +356,7 @@
 
   function renderDailyOnly() {
     if (state.lastResearch) return;
+    if (state.rulesEnabled && state.rules?.market.symbol === state.symbol) { renderRules(); return; }
     const chart = $('strategy-svg');
     chart.replaceChildren(svg('rect', { width: 1000, height: 260, fill: '#111923' }));
     const cards = $('strategy-cards'); cards.replaceChildren();
@@ -383,19 +390,46 @@
     $('strategy-time').textContent = '最後完整日 K：' + formatTime(daily.lastBarTime);
   }
 
+  function renderRules() {
+    const data = state.rules;
+    if (!data || data.market.symbol !== state.symbol) return;
+    const m = data.market;
+    renderAnalysis({...data, mode:'rules', assessment:{action:m.ruleAction, ruleAction:m.ruleAction,
+      summary: m.ruleAction === 'WAIT' ? '指標分歧、過熱或價格結構要求觀望。' : '日線趨勢與動能符合規則條件；尚未進行 AI 或新聞風險審核。',
+      reasons:['EMA20 '+formatNumber(m.indicators.ema20,m.currency)+' · EMA50 '+formatNumber(m.indicators.ema50,m.currency),
+        'RSI14 '+m.indicators.rsi14+' · 20 日動能 '+m.indicators.momentum20+'%',m.priceAction.reason],
+      risks:['證據分數是指標一致性，不是勝率。'], invalidation:'行情過期、條件改變或失效價觸及時重新評估。'}});
+    $('metric-ai').textContent = '尚未執行'; setTone($('metric-ai'),'neutral');
+    $('metric-ai-detail').textContent = '規則計算不消耗 AI 額度';
+    $('analysis-status').textContent = '日線規則引擎';
+    $('metric-news').textContent = '未納入'; $('metric-news-detail').textContent = '規則引擎只使用行情資料';
+  }
+
   async function loadDailyLevels() {
     if (!state.allowed || !configuredApi) return;
     const request = ++state.dailyRequest, symbol = state.symbol;
+    const controller = new AbortController(), timeout = setTimeout(()=>controller.abort(),30000);
     state.dailyDue = Date.now() + 300000;
+    $('rules-status').textContent = '正在更新已完成日線…';
     try {
-      const result = await callResearch('/v1/levels?symbol=' + encodeURIComponent(symbol));
-      if (request !== state.dailyRequest || symbol !== state.symbol || result.symbol !== symbol) return;
-      state.dailySymbol = symbol; state.dailyLevels = result.dailyLevels || null; state.dailyChecked = true;
-      state.dailyDue = Date.now() + (state.dailyLevels ? 1800000 : 300000);
-    } catch {
+      const result = await callResearch((state.rulesEnabled?'/v1/rules':'/v1/levels')+'?symbol='+encodeURIComponent(symbol),{signal:controller.signal});
       if (request !== state.dailyRequest || symbol !== state.symbol) return;
-      state.dailySymbol = symbol; state.dailyLevels = null; state.dailyChecked = true; state.dailyDue = Date.now() + 300000;
-    }
+      state.rules = result.market ? result : null;
+      state.dailySymbol = symbol; state.dailyLevels = result.market?.dailyLevels || result.dailyLevels || null; state.dailyChecked = true;
+      state.dailyDue = Date.now() + (state.rulesEnabled ? (asset().kind==='crypto'?60000:120000) : 1800000);
+      $('rules-status').textContent = state.rulesEnabled ? '已更新 · 已收盤日 K · '+(asset().kind==='crypto'?'60':'120')+' 秒檢查 · 零 AI 呼叫' : '規則引擎已關閉；保留 20 日線';
+      if (state.lastResearch && !state.busy && state.rules) {
+        const old = state.lastResearch;
+        if (Date.now()/1000-old.generatedAt>300 || old.market.barTime!==result.market.barTime || Math.abs(old.market.price-result.market.price)>result.market.indicators.atr14*.5) {
+          clearResearch(); $('analysis-error').textContent = '先前 AI 快照已過期或行情變動，已回到最新規則；可手動重新研究。';
+        }
+      }
+    } catch(error) {
+      if (request !== state.dailyRequest || symbol !== state.symbol) return;
+      state.rules=null;state.dailySymbol=symbol;state.dailyLevels=null;state.dailyChecked=true;state.dailyDue=Date.now()+300000;
+      $('rules-status').textContent = (error instanceof Error?error.message:'行情暫不可用')+' · 5 分鐘後再檢查';
+      if (!state.lastResearch) { $('analysis').replaceChildren(element('p','analysis-empty','規則資料暫不可用，已停止顯示先前的規則與價位。')); $('metric-rule').textContent='資料不足'; $('metric-score').textContent='等待有效資料'; $('metric-price').textContent='—'; }
+    } finally { clearTimeout(timeout); }
     if (!state.lastResearch) renderDailyOnly();
   }
 
@@ -568,7 +602,7 @@
   document.querySelectorAll('[data-symbol]').forEach(button => button.addEventListener('click', () => {
     if (!Object.hasOwn(ASSETS, button.dataset.symbol)) return;
     if (state.symbol === button.dataset.symbol) return;
-    state.symbol = button.dataset.symbol; clearResearch(); applyChartOptions(); loadDailyLevels();
+    state.symbol = button.dataset.symbol; window.dispatchEvent(new Event('marketpilot:asset')); clearResearch(); applyChartOptions(); loadDailyLevels();
   }));
   document.querySelectorAll('[data-market-filter]').forEach(button => button.addEventListener('click', () => { state.marketFilter = button.dataset.marketFilter; saveOptions(); updateControls(); }));
   document.querySelectorAll('[data-interval]').forEach(button => button.addEventListener('click', () => { if (Object.hasOwn(INTERVALS, button.dataset.interval) && state.interval !== button.dataset.interval) { state.interval = button.dataset.interval; clearResearch(); applyChartOptions(); } }));
@@ -585,6 +619,9 @@
   $('own-api-key').addEventListener('input', () => { if (state.lastResearch || state.busy) clearResearch(); else updateControls(); });
   $('clear-own-key').addEventListener('click', () => { $('own-api-key').value = ''; clearResearch(); $('own-api-key').focus(); });
   window.addEventListener('pagehide', () => { $('own-api-key').value = ''; });
+  $('rules-enabled').addEventListener('change',()=>{state.rulesEnabled=$('rules-enabled').checked;state.rules=null;saveOptions();clearResearch();loadDailyLevels();});
+  $('refresh-rules').addEventListener('click',()=>{clearResearch();loadDailyLevels();});
+  window.MarketPilotBacktest.mount({root:$('backtest-panel'),getAsset:()=>({symbol:state.symbol,...asset()}),allowed:()=>state.allowed,request:(body,signal)=>callResearch('/v1/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal})});
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);
   document.querySelectorAll('[data-dialog]').forEach(button => button.addEventListener('click', () => $(button.dataset.dialog).showModal()));
@@ -599,6 +636,6 @@
   checkService();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkService(); });
   if (configuredApi) setInterval(() => { if (!document.hidden) checkService(); }, 60000);
-  if (configuredApi) setInterval(() => { if (!document.hidden && state.allowed && Date.now() >= state.dailyDue) loadDailyLevels(); }, 60000);
+  if (configuredApi) setInterval(() => { if (!document.hidden && state.allowed && Date.now() >= state.dailyDue) loadDailyLevels(); }, 15000);
   if (state.allowed) { renderWidgets(); loadDailyLevels(); }
 })();

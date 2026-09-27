@@ -1,6 +1,6 @@
 # MarketPilot 公開市場儀表板
 
-這是 MarketPilot 的獨立公開網站。前端由 `site/` 中四個公開檔案組成，透過 GitHub Pages 提供 HTTPS 存取；`api/` 是 Deno Deploy 的受限研究服務原始碼，不含任何 Secret。
+這是 MarketPilot 的獨立公開網站。前端由 `site/` 中五個公開檔案組成，透過 GitHub Pages 提供 HTTPS 存取；`api/` 是 Deno Deploy 的受限研究服務原始碼，不含任何 Secret。
 
 本站程式碼以 [MIT License](LICENSE) 開放。價格行為研究流程參考 [PA_Agent](https://github.com/rosemarycox5334-debug/PA_Agent/tree/cd0aca2da684fb342bc25f6e14bc980dc8480dab) 的公開架構說明；PA_Agent 原專案採 AGPL-3.0-or-later。本站的區間、重疊、突破與觀望閘門由 MarketPilot 獨立實作，沒有複製其程式碼、提示詞、策略文件或桌面 UI。兩者的研究結果不等同。
 
@@ -11,3 +11,11 @@
 每次 main 分支更新，GitHub Actions 會先執行公開內容驗證，再發布網站；Deno 的 GitHub 整合依 `api/` 變更更新研究服務。Actions 使用固定版本的官方動作；只有部署工作具備 Pages 與身分權杖權限。此儲存庫僅接受固定清單中的前端、Deno 原始碼與部署設定。
 
 本機公開來源檔案更新後，可由發布工具同步至這個專用儲存庫。同步不會合併或強制覆寫遠端分歧；遇到驗證、授權或版本衝突會停止。
+
+## 日線規則與歷史回測
+
+公開版預設開啟行情規則引擎，與本機同樣使用最近 260 根已收盤日 K 的 EMA20/50、RSI14、ATR14、20 日動能與價格結構閘門。圖表分鐘週期不會改變日線策略基礎。加密貨幣每 60 秒、股票每 120 秒檢查；不消耗 AI 額度。
+
+新增自訂日期（日線、最長五年）的四種策略回測：綜合規則、EMA 趨勢、RSI 反轉、20 日突破。可設定本金、手續費、滑價、做空借貸成本與 ATR 保護，顯示淨報酬、基準、回撤、勝率、逐筆交易及 JSON 下載。訊號用前日收盤、次日開盤成交；同日停損／目標雙觸及採保守停損優先。股票使用還原權息價格；回測未重播歷史 AI／新聞、不含真實撮合和融券限制，不保證未來績效。
+
+回測端點每位訪客每 10 分鐘最多 4 次，全站每小時 60 次；無需 API key。獨立回測引擎為 `api/backtest.ts`，兩版共用前端 `site/backtest-ui.js`。
