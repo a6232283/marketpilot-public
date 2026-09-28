@@ -201,6 +201,7 @@
     $('timezone').value = state.timezone;
     $('chart-selection').textContent = canEmbedChart(selected) ? '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準' : '此市場的分鐘 K 線請至 TradingView 標的頁查看；本站不顯示其他股票的替代圖。';
     $('chart-range-note').textContent = canEmbedChart(selected) ? '顯示範圍可在圖內縮放' : '此市場的內嵌週期暫不可用';
+    $('chart-caution').textContent = canEmbedChart(selected) ? '圖表不預測未來；尚未收盤的 K 線可能變動。' : '外部標的頁的行情延遲與可用週期以 TradingView 顯示為準。';
     $('chart-refresh-status').textContent = !state.allowed ? '圖表在取得同意後由 TradingView 載入' : canEmbedChart(selected) ? '資料由 TradingView 提供；延遲與交易時段以圖內標示為準' : '此市場暫不內嵌 K 線；請開啟 TradingView 標的頁';
     $('consent-card').hidden = state.allowed;
     $('connection-bar').hidden = !state.allowed;

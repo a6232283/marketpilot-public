@@ -11,7 +11,7 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css?v=c2ff93083423">
   <script src="./backtest-ui.js?v=1b912cd7b9f9" defer></script>
-  <script src="./app.js?v=4cd849ff7f33" defer></script>
+  <script src="./app.js?v=166098b8e8c1" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳至主要內容</a>
@@ -50,7 +50,7 @@
             <div class="chart-toolbar"><div class="candle-toolbar"><span class="chart-label">K 線週期</span><div class="candle-periods" role="group" aria-label="K 線週期"><button data-interval="5m">5 分鐘</button><button data-interval="15m" class="active">15 分鐘</button><button data-interval="30m">30 分鐘</button><button data-interval="1h">1 小時</button></div></div><span id="chart-range-note" class="chart-label">顯示範圍可在圖內縮放</span></div>
             <div class="chart-zone"><label>顯示時區<select id="timezone"><option value="Asia/Taipei">台北 UTC+8</option><option value="Etc/UTC">UTC</option><option value="exchange">交易所時區</option></select></label><span id="chart-refresh-status">圖表在取得同意後由 TradingView 載入</span></div>
             <div id="chart-widget" class="chart-container widget-slot"><div class="widget-placeholder"><div class="placeholder-art">⌁</div><strong>市場圖表尚未連線</strong><p>同意後才會建立與 TradingView 的連線。圖內顯示的交易時段、延遲與歷史範圍以資料來源為準。</p><button class="button quiet" data-allow-external>載入圖表</button></div></div>
-            <div class="chart-foot"><span id="chart-selection">預設每根 K 線 15 分鐘 · Asia/Taipei · 圖內可縮放；以圖內實際週期為準</span><span>圖表不預測未來；尚未收盤的 K 線可能變動。</span></div>
+            <div class="chart-foot"><span id="chart-selection">預設每根 K 線 15 分鐘 · Asia/Taipei · 圖內可縮放；以圖內實際週期為準</span><span id="chart-caution">圖表不預測未來；尚未收盤的 K 線可能變動。</span></div>
           </section>
 
           <section class="panel strategy-panel" id="strategy-panel" aria-labelledby="strategy-title">
