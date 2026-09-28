@@ -16,6 +16,7 @@ window.MarketPilotBacktest = (() => {
     const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10),yearAgo=new Date(Date.now()-366*86400000).toISOString().slice(0,10);
     const symbol=el('p','bt-selection','標的：'+lastSymbol+' · 使用上方目前選取的市場');body.append(symbol);
     make('start','開始日期','date',yearAgo,{required:true,min:'2000-01-01',max:yesterday});make('end','結束日期','date',yesterday,{required:true,min:'2000-01-01',max:yesterday});
+    make('validationStart','樣本外驗證起點（選填）','date','',{min:'2000-01-01',max:yesterday});
     const strategyWrap=el('label','bt-field','策略指標'),strategy=el('select');strategy.name='strategy';for(const [value,label]of strategies){const option=el('option','',label);option.value=value;strategy.append(option);}strategy.value='combined';strategyWrap.append(strategy);form.append(strategyWrap);fields.strategy=strategy;
     const directionWrap=el('label','bt-field','模擬方向'),direction=el('select');direction.name='direction';for(const [value,label]of [['long','只做多／空手'],['both','多空雙向 · 理論做空']]){const option=el('option','',label);option.value=value;direction.append(option);}directionWrap.append(direction);form.append(directionWrap);fields.direction=direction;
     make('initial','初始本金（報價幣別）','number',10000,{required:true,min:100,max:1e9,step:'any'});
@@ -31,16 +32,18 @@ window.MarketPilotBacktest = (() => {
     strategy.addEventListener('change',updateFields);direction.addEventListener('change',updateFields);check.addEventListener('change',updateFields);
     const actions=el('div','bt-actions'),run=el('button','button primary','執行歷史回測'),cancel=el('button','button subtle','取消');run.type='submit';cancel.type='button';cancel.hidden=true;actions.append(run,cancel);
     const status=el('p','bt-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');const results=el('div','bt-results');
-    form.append(actions);body.append(form,el('p','bt-help','訊號只看前一交易日資料，下一根開盤成交。買進持有無暖機要求；其他策略至少 60 根，較長週期需更多。最多五年，股票使用還原權息價格。比較淨報酬、年化報酬、回撤、交易筆數與成本；高勝率不保證獲利。調參後請換一段日期驗證。'),status,results);root.append(body);updateFields();
+    form.append(actions);body.append(form,el('p','bt-help','可填驗證起點，將資料切為調參區與樣本外區；兩段各自從初始本金模擬。訊號只看前一交易日資料，下一根開盤成交。買進持有無暖機要求；其他策略至少 60 根，較長週期需更多。最多五年，股票使用還原權息價格。高勝率不保證獲利；不要根據驗證結果反覆調參。'),status,results);root.append(body);updateFields();
     function reset(){const selected=getAsset();if(selected.symbol===lastSymbol)return;lastSymbol=selected.symbol;symbol.textContent='標的：'+lastSymbol+' · 使用上方目前選取的市場';generation++;controller?.abort();controller=null;run.disabled=false;cancel.hidden=true;results.replaceChildren();status.textContent='標的已切換，請重新執行回測。';}
     window.addEventListener('marketpilot:asset',reset);cancel.addEventListener('click',()=>controller?.abort());
     form.addEventListener('submit',async event=>{
       event.preventDefault();reset();if(controller)return;
       if(!allowed()){status.textContent='請先載入市場資料或完成網站連線，再執行回測。';return;}
       if(fields.start.value>=fields.end.value){status.textContent='結束日期必須晚於開始日期。';return;}
+      if(fields.validationStart.value&&!(fields.start.value<fields.validationStart.value&&fields.validationStart.value<fields.end.value)){status.textContent='驗證起點必須位於開始與結束日期之間。';return;}
       const relevant=strategyParams[strategy.value];
       if(relevant.includes('fastPeriod')&&Number(fields.fastPeriod.value)>=Number(fields.slowPeriod.value)||relevant.includes('macdFast')&&Number(fields.macdFast.value)>=Number(fields.macdSlow.value)){status.textContent='快線週期必須短於慢線週期。';return;}
       const asset={...getAsset()},body={symbol:asset.symbol,kind:asset.kind,start:fields.start.value,end:fields.end.value,strategy:strategy.value,direction:direction.value,atrProtection:check.checked};
+      if(fields.validationStart.value)body.validationStart=fields.validationStart.value;
       for(const name of ['initial','feePct','slippagePct','shortApr'])body[name]=Number(fields[name].value);
       for(const name of relevant)body[name]=Number(fields[name].value);
       if(check.checked)for(const name of ['atrStopMult','atrTargetMult'])body[name]=Number(fields[name].value);
@@ -54,6 +57,12 @@ window.MarketPilotBacktest = (() => {
   function render(data,root){
     const s=data.summary,metrics=el('div','bt-metrics');
     for(const [label,value,suffix]of [['策略淨報酬',s.netReturn,'%'],['年化報酬（≥30日）',s.annualizedReturn,'%'],['買進持有',s.benchmarkReturn,'%'],['最大回撤（日末）',s.maxDrawdown,'%'],['已結束交易',s.tradeCount,' 筆'],['勝率',s.winRate,'%'],['期末本金',s.final,'']]){const card=el('div','bt-metric');card.append(el('span','',label),el('strong',value<0?'down':label.includes('報酬')?'up':'',num(value)+(value===null?'':suffix)));metrics.append(card);}root.append(metrics);
+    if(data.validation){
+      const v=data.validation,section=el('section','bt-validation');section.append(el('h3','','樣本外驗證 · '+v.cutoff+' 起'));
+      const table=el('table','bt-validation-table'),head=el('tr');for(const label of ['區間','實際日期','交易日','成本後淨報酬','買進持有','最大回撤','交易數'])head.append(el('th','',label));table.append(head);
+      for(const [label,part]of [['切點前 · 調參',v.training],['切點後 · 驗證',v.testing]]){const row=el('tr');for(const value of [label,part.actualStart+' 至 '+part.actualEnd,String(part.bars),num(part.summary.netReturn)+'%',num(part.summary.benchmarkReturn)+'%',num(part.summary.maxDrawdown)+'%',String(part.summary.tradeCount)])row.append(el('td','',value));table.append(row);}
+      const scroll=el('div','bt-table-wrap');scroll.append(table);section.append(scroll,el('p','bt-help',v.note));root.append(section);
+    }
     root.append(el('p','bt-help',data.source+' · '+data.timezone+(data.adjusted?' · 還原權息 OHLC，股利再投資近似':'')),el('p','bt-help','費用與借貸：'+num(s.totalCosts)+'（滑價另反映於成交價） · 持倉日占比：'+num(s.exposurePct)+'% · 獲利因子：'+(s.profitFactor===null?'不適用（交易不足或無虧損）':num(s.profitFactor))));
     const chart=el('div','bt-chart');chart.append(equityChart(data));root.append(chart,el('p','bt-help','綠線：策略權益　灰線：買進持有基準（含買入及期末賣出成本）'));
     const warnings=el('ul','bt-warnings');for(const warning of data.warnings)warnings.append(el('li','',warning));root.append(warnings);

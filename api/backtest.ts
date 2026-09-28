@@ -14,6 +14,7 @@ export type DatedBar = Bar & { date: string };
 export type BacktestConfig = {
   start: string;
   end: string;
+  validationStart: string | null;
   strategy: string;
   direction: string;
   initial: number;
@@ -64,6 +65,7 @@ export function normalizeBacktest(
     return v;
   };
   const start = date("start"), end = date("end");
+  const validationStart = p.validationStart ? date("validationStart") : null;
   if (
     start < "2000-01-01" || dayStamp(start) >= dayStamp(end) ||
     dayStamp(end) >= Math.floor(now / DAY) * DAY ||
@@ -72,6 +74,9 @@ export function normalizeBacktest(
     throw new PublicError(
       "回測需至少兩天、最長五年，結束日不得晚於 UTC 昨日。",
     );
+  }
+  if (validationStart && !(start < validationStart && validationStart < end)) {
+    throw new PublicError("樣本外驗證起點必須位於開始與結束日期之間。");
   }
   const number = (name: string, fallback: number, min: number, max: number) => {
     const value = p[name] === undefined ? fallback : p[name];
@@ -98,6 +103,7 @@ export function normalizeBacktest(
   return {
     start,
     end,
+    validationStart,
     strategy,
     direction: strategy === "buyhold" ? "long" : direction,
     initial: number("initial", 10000, 100, 1e9),
@@ -105,8 +111,26 @@ export function normalizeBacktest(
     slippagePct: number("slippagePct", .05, 0, 2),
     shortApr: number("shortApr", 5, 0, 100),
     atrProtection: strategy === "buyhold" ? false : p.atrProtection !== false,
-    ...params as Omit<BacktestConfig, "start" | "end" | "strategy" | "direction" | "initial" | "feePct" | "slippagePct" | "shortApr" | "atrProtection">,
+    ...params as Omit<BacktestConfig, "start" | "end" | "validationStart" | "strategy" | "direction" | "initial" | "feePct" | "slippagePct" | "shortApr" | "atrProtection">,
   };
+}
+
+export function validationResults(rawBars: DatedBar[], cfg: BacktestConfig) {
+  const cut = cfg.validationStart;
+  if (!cut) return null;
+  const before = rawBars.filter(b => b.date >= cfg.start && b.date < cut);
+  const after = rawBars.filter(b => b.date >= cut && b.date <= cfg.end);
+  if (before.length < 2 || after.length < 2) {
+    throw new PublicError("樣本外切點兩側各需至少兩根完整交易日 K。");
+  }
+  const training = simulate(rawBars, {...cfg, end:before.at(-1)!.date, validationStart:null});
+  const testing = simulate(rawBars, {...cfg, start:after[0].date, validationStart:null});
+  const compact = (result: ReturnType<typeof simulate>) => ({
+    actualStart:result.actualStart, actualEnd:result.actualEnd,
+    bars:result.bars, summary:result.summary,
+  });
+  return {cutoff:cut, training:compact(training), testing:compact(testing),
+    note:"驗證區間使用切點前資料暖機；切點當日重設資金與部位。若曾依驗證結果調參，該區間不再是未碰過的樣本。"};
 }
 
 export function warmupBars(cfg: BacktestConfig) {

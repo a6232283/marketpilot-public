@@ -26,7 +26,7 @@ import {
   validateCase,
 } from './core.ts';
 
-import { normalizeBacktest, dailyHistory, simulate } from './backtest.ts';
+import { normalizeBacktest, dailyHistory, simulate, validationResults } from './backtest.ts';
 
 const MCP_ENDPOINT = 'https://mcp.jin10.com/mcp';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
@@ -288,7 +288,9 @@ async function backtest(request: Request) {
   try {
     const asset = await resolveAsset(symbol,kind);
     const history = await dailyHistory(symbol,asset,cfg.start,cfg.end,providerJSON);
-    return {...simulate(history.bars,cfg),symbol,kind:asset.kind,source:history.source,timezone:history.zone,adjusted:history.adjusted,generatedAt:Math.floor(Date.now()/1000)};
+    const result = simulate(history.bars,cfg);
+    const validation = validationResults(history.bars,cfg);
+    return {...result,validation,symbol,kind:asset.kind,source:history.source,timezone:history.zone,adjusted:history.adjusted,generatedAt:Math.floor(Date.now()/1000)};
   } finally {activeBacktests--;}
 }
 
@@ -547,7 +549,7 @@ async function research(request: Request) {
   return {
     generatedAt: Math.floor(Date.now() / 1000),
     market: { ...technical, source: market.source, fetchedAt: market.fetchedAt },
-    assessment: { ...ai, action, ruleAction: technical.ruleAction, agreement: action === technical.ruleAction },
+    assessment: { ...ai, modelAction: ai.action, action, ruleAction: technical.ruleAction, agreement: ai.action === technical.ruleAction },
     mode: input.mode,
     debate,
     committee,

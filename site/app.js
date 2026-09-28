@@ -381,6 +381,25 @@
     section.append(list); parent.append(section);
   }
 
+  function decisionChecks(data, result, market) {
+    const ai = data.mode !== 'rules';
+    const checks = [
+      ['資料與週期', Number.isFinite(market.barTime) && Number.isFinite(market.quoteTime), '已完成日 K；研究期間約 5–20 個交易日'],
+      ['規則方向', result.ruleAction !== 'WAIT', actionText(result.ruleAction)],
+      ['價格結構', market.priceAction?.gate !== 'WAIT', market.priceAction?.reason || '結構資料不足'],
+      ['事件風險', ai ? ['LOW','MEDIUM'].includes(result.eventRisk) : null, ai ? '風險：' + (result.eventRisk || 'UNKNOWN') : '規則模式尚未審核新聞'],
+      ['AI 與規則', ai ? result.modelAction === result.ruleAction : null, ai ? 'AI：' + actionText(result.modelAction) : '尚未執行 AI'],
+    ];
+    const section = element('section','analysis-list decision-checks');
+    section.append(element('h3','','研究條件檢查'));
+    const list = element('ul');
+    for (const [label, pass, detail] of checks) {
+      const item = element('li','',`${pass === null ? '待審' : pass ? '通過' : '觀望'} · ${label}：${detail}`);
+      list.append(item);
+    }
+    section.append(list); return section;
+  }
+
   function renderAnalysis(data) {
     const result = data.assessment || {};
     const market = data.market || {};
@@ -397,6 +416,7 @@
     copy.append(element('strong', '', actionText(action)));
     copy.append(element('p', '', result.summary || '未產生可驗證的 AI 摘要，保持觀望。'));
     banner.append(icon, copy); wrap.append(banner);
+    wrap.append(decisionChecks(data,result,market));
     if (market.priceAction) {
       const pa = market.priceAction;
       const details = element('details', 'analysis-list');
