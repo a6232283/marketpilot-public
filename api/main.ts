@@ -26,7 +26,7 @@ import {
   validateCase,
 } from './core.ts';
 
-import { normalizeBacktest, dailyHistory, simulate, validationResults } from './backtest.ts';
+import { normalizeBacktest, dailyHistory, simulate, validationResults, forwardOutcomes } from './backtest.ts';
 
 const MCP_ENDPOINT = 'https://mcp.jin10.com/mcp';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
@@ -270,7 +270,7 @@ async function ruleSnapshot(symbol: string, asset: Asset, interval: keyof typeof
   // Rows are already closed daily bars; derive the levels from that same snapshot.
   const last20 = market.bars.slice(-20);
   const dailyLevels = {support: Math.min(...last20.map(b=>b.low)), resistance: Math.max(...last20.map(b=>b.high)), count:20, lastBarTime:last20.at(-1)!.time, basis:'最近 20 根已完成日 K'};
-  return {generatedAt:Math.floor(Date.now()/1000), market:{...technicalAssessment(market.bars,{...asset,symbol},interval,market.price),
+  return {generatedAt:Math.floor(Date.now()/1000), ruleVersion:'daily-rule-v1', market:{...technicalAssessment(market.bars,{...asset,symbol},interval,market.price),
     basisInterval:'1d', basis:'已完成日 K；EMA20/50、RSI14、ATR14、20 日動能', dailyLevels,
     quoteTime:market.quoteTime,barEndTime:market.barEndTime,source:market.source,fetchedAt:market.fetchedAt}};
 }
@@ -291,6 +291,27 @@ async function backtest(request: Request) {
     const result = simulate(history.bars,cfg);
     const validation = validationResults(history.bars,cfg);
     return {...result,validation,symbol,kind:asset.kind,source:history.source,timezone:history.zone,adjusted:history.adjusted,generatedAt:Math.floor(Date.now()/1000)};
+  } finally {activeBacktests--;}
+}
+
+async function journalOutcome(request: Request) {
+  const input = await readJSON(request);
+  const {symbol,kind} = normalizeAssetIdentity(input.symbol,input.kind);
+  const barTime = input.barTime, now = Math.floor(Date.now()/1000);
+  if (typeof barTime !== 'number' || !Number.isInteger(barTime) || barTime < now-120*86_400 || barTime > now) {
+    throw new PublicError('研究紀錄必須是最近 120 天的已完成日 K。');
+  }
+  const identity = await hashClient(request);
+  await consume(['marketpilot','rate','journal',identity,Math.floor(Date.now()/600000)],6,600000,1);
+  await consume(['marketpilot','rate','journal-global',Math.floor(Date.now()/3600000)],80,3600000,1);
+  if (activeBacktests >= 2) throw new PublicError('歷史資料正在處理中，請稍後再試。',429,30);
+  activeBacktests++;
+  try {
+    const start = new Date((barTime-86_400)*1000).toISOString().slice(0,10);
+    const end = new Date(now*1000).toISOString().slice(0,10);
+    const asset = await resolveAsset(symbol,kind);
+    const history = await dailyHistory(symbol,asset,start,end,providerJSON);
+    return {...forwardOutcomes(history.bars,barTime),symbol,kind:asset.kind,source:history.source};
   } finally {activeBacktests--;}
 }
 
@@ -551,6 +572,8 @@ async function research(request: Request) {
     market: { ...technical, source: market.source, fetchedAt: market.fetchedAt },
     assessment: { ...ai, modelAction: ai.action, action, ruleAction: technical.ruleAction, agreement: ai.action === technical.ruleAction },
     mode: input.mode,
+    model: safeModel(setting('GEMINI_MODEL')),
+    ruleVersion: 'daily-rule-v1',
     debate,
     committee,
     news: { available: flashes.available, fetchedAt: flashes.fetchedAt, count: flashes.items.length, source: '金十官方 MCP（僅作 AI 研究上下文）' }
@@ -598,6 +621,7 @@ async function handleRequest(request: Request) {
       return response(request, await ruleSnapshot(symbol,asset));
     }
     if (url.pathname === '/v1/backtest' && request.method === 'POST') return response(request, await backtest(request));
+    if (url.pathname === '/v1/journal/evaluate' && request.method === 'POST') return response(request, await journalOutcome(request));
     if (url.pathname === '/v1/research' && request.method === 'POST') return response(request, await research(request));
     return response(request, { error: '找不到服務。' }, 404);
   } catch (error) {

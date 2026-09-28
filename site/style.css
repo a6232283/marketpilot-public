@@ -51,3 +51,18 @@ dialog{width:min(720px,calc(100vw - 32px));max-height:85vh;padding:0;border:1px 
 .public-risk-notice .text-button{color:#f1d18e;white-space:nowrap;font-size:11px}
 .candle-periods button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:800px){.public-risk-notice{grid-template-columns:28px minmax(0,1fr);align-items:start;padding:13px;gap:8px 11px}.public-risk-notice .text-button{grid-column:2;justify-self:start}}
+
+/* Research validation and browser-local forward journal. */
+.bt-validation{margin:22px 0;padding:16px;border:1px solid #3b503b;border-radius:10px;background:#152119}
+.bt-validation h3{margin:0 0 12px;color:#c9f77a}
+.bt-validation-table{width:100%;border-collapse:collapse;min-width:650px;font-size:12px}
+.bt-validation-table th,.bt-validation-table td{text-align:left;padding:10px 12px;border-bottom:1px solid #33483b;white-space:nowrap}
+.bt-validation-table th{color:#afc7b0}
+.journal-panel{margin-top:24px;padding-bottom:20px}
+.journal-panel .journal-actions,.journal-panel>.bt-help,.journal-panel>.bt-status,.journal-panel>.analysis-empty,.journal-panel>.journal-list{margin-left:24px;margin-right:24px}
+.journal-actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.journal-list{display:grid;gap:10px;max-height:650px;overflow:auto}
+.journal-entry{padding:14px 16px;border:1px solid #314154;border-radius:9px;background:#101b26;display:grid;gap:5px}
+.journal-entry strong{font-size:14px;color:#e8f2e6}.journal-entry small{color:#9cb0c4;line-height:1.6}.journal-entry p{color:#bed0df;font-size:12px;line-height:1.6}.journal-entry button{justify-self:start;margin-top:5px}
+.decision-checks ul{list-style:none;padding-left:0;display:grid;gap:5px}.decision-checks li{font-size:12px;line-height:1.6;color:#aec5b5}
+@media(max-width:600px){.journal-panel .journal-actions,.journal-panel>.bt-help,.journal-panel>.bt-status,.journal-panel>.analysis-empty,.journal-panel>.journal-list{margin-left:16px;margin-right:16px}}

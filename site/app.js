@@ -474,6 +474,9 @@
     $('jin10-note').textContent = data.news?.available ? '金十 MCP 事件資料已在本輪以受限方式提供給 AI，未傳回或重製快訊全文。資料時間：' + formatTime(data.news.fetchedAt) + '。' : '本輪未取得可用金十事件資料；AI 已以市場快照進行保守研究，事件風險會反映在結論中。';
     }
     drawStrategy(market, result, data.generatedAt);
+    window.MarketPilotJournal?.record({symbol:market.symbol,kind:asset().kind,barTime:market.barTime,generatedAt:data.generatedAt,
+      price:market.price,action:result.action,ruleAction:result.ruleAction,mode:data.mode,model:data.model,
+      ruleVersion:data.ruleVersion,source:market.source});
   }
 
   function drawLine(canvas, points, color, dash = '') {
@@ -776,6 +779,8 @@
   $('rules-enabled').addEventListener('change',()=>{state.rulesEnabled=$('rules-enabled').checked;state.rules=null;saveOptions();clearResearch();loadDailyLevels();});
   $('refresh-rules').addEventListener('click',()=>{clearResearch();loadDailyLevels();});
   window.MarketPilotBacktest.mount({root:$('backtest-panel'),getAsset:()=>({symbol:state.symbol,...asset()}),allowed:()=>state.allowed,request:(body,signal)=>callResearch('/v1/backtest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal})});
+  window.MarketPilotJournal?.mount({root:$('journal-panel'),allowed:()=>state.allowed&&state.serviceReady,
+    evaluate:body=>callResearch('/v1/journal/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});
   $('retry-service').addEventListener('click',async()=>{const button=$('retry-service');button.disabled=true;try{await checkService(true);}finally{button.disabled=false;}});
   $('run-analysis').addEventListener('click', runAnalysis);
   $('refresh-news').addEventListener('click', refreshNewsStatus);

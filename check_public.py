@@ -6,10 +6,10 @@ import re
 import stat
 import sys
 
-SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg', 'backtest-ui.js'})
+SITE_FILES = frozenset({'index.html', 'app.js', 'style.css', 'favicon.svg', 'backtest-ui.js', 'decision-journal.js'})
 DENO_FILES = frozenset({'main.ts', 'core.ts', 'deno.json', 'deno.lock', 'backtest.ts'})
 HOST_FILES = frozenset({'api/funnel_host.py'})
-HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES - {'backtest-ui.js'}} | {
+HISTORY_REQUIRED_FILES = frozenset({'site/' + p for p in SITE_FILES - {'backtest-ui.js', 'decision-journal.js'}} | {
     '.github/workflows/pages.yml', 'check_public.py', 'README.md', '.gitignore'})
 REPO_FILES = frozenset(HISTORY_REQUIRED_FILES | {'site/' + p for p in SITE_FILES} | {'api/' + p for p in DENO_FILES} | HOST_FILES | {'LICENSE'})
 MAX_FILE = 1_000_000

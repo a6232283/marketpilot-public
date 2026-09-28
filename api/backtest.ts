@@ -133,6 +133,18 @@ export function validationResults(rawBars: DatedBar[], cfg: BacktestConfig) {
     note:"驗證區間使用切點前資料暖機；切點當日重設資金與部位。若曾依驗證結果調參，該區間不再是未碰過的樣本。"};
 }
 
+export function forwardOutcomes(bars: DatedBar[], barTime: number) {
+  const index = bars.findIndex(bar => bar.time === barTime);
+  if (index < 0) throw new PublicError("找不到紀錄所依據的已完成日 K，暫不評分。");
+  const base = bars[index].close;
+  if (!Number.isFinite(base) || base <= 0) throw new PublicError("歷史參考價無效，暫不評分。");
+  return {anchorDate:bars[index].date,
+    horizons:[5,10,20].map(sessions => index+sessions < bars.length
+      ? {sessions,date:bars[index+sessions].date,marketReturnPct:Number(((bars[index+sessions].close/base-1)*100).toFixed(4))}
+      : {sessions,date:null,marketReturnPct:null}),
+    basis:"已完成日 K 收盤價；股票使用還原權息資料。方向變化未扣交易成本，觀望不視為交易。"};
+}
+
 export function warmupBars(cfg: BacktestConfig) {
   if (cfg.strategy === "buyhold") return 0;
   const key: Record<string, keyof BacktestConfig> = {ema:"slowPeriod",sma:"slowPeriod",rsi:"rsiPeriod",breakout:"breakoutPeriod",bollinger:"bbPeriod",macd:"macdSlow",momentum:"momentumPeriod"};
