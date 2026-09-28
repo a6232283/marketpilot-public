@@ -33,6 +33,8 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models
 const MAX_BODY_BYTES = 48_000;
 const MAX_PROVIDER_BYTES = 1_200_000;
 const SERVICE_NAME = 'MarketPilot-public';
+const FLOOD_WINDOW_MS = 60_000;
+const FLOOD_TRIP_REQUESTS = 180;
 
 type JsonRecord = Record<string, unknown>;
 type Flash = { id: string; published: number; text: string };
@@ -40,6 +42,8 @@ type Flashes = { available: boolean; fetchedAt: number; items: Flash[] };
 type WindowValue = { start: number; used: number };
 
 let kvPromise: Promise<Deno.Kv> | undefined;
+const cacheFlights = new Map<string, Promise<unknown>>();
+const floodState = { start: 0, count: 0, tripped: false };
 
 function setting(name: string) {
   return Deno.env.get(name) || '';
@@ -122,6 +126,9 @@ async function readLimited(stream: ReadableStream<Uint8Array> | null, maximum: n
 }
 
 async function readJSON(request: Request) {
+  if (request.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
+    throw new PublicError('請求內容類型必須是 application/json。', 415);
+  }
   const length = Number.parseInt(request.headers.get('Content-Length') || '0', 10);
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) throw new PublicError('請求內容過大。', 413);
   const raw = await readLimited(request.body, MAX_BODY_BYTES);
@@ -160,9 +167,16 @@ async function cached<T>(name: string, seconds: number, factory: () => Promise<T
   const hit = await kv.get<{ savedAt: number; value: T }>(key);
   const now = Date.now();
   if (!force && hit.value && Number.isFinite(hit.value.savedAt) && now - hit.value.savedAt <= seconds * 1000) return hit.value.value;
-  const value = await factory();
-  await kv.set(key, { savedAt: now, value }, { expireIn: (seconds + 60) * 1000 });
-  return value;
+  const existing = cacheFlights.get(name);
+  if (existing) return await existing as T;
+  const pending = (async () => {
+    const value = await factory();
+    await kv.set(key, { savedAt: Date.now(), value }, { expireIn: (seconds + 60) * 1000 });
+    return value;
+  })();
+  cacheFlights.set(name, pending);
+  try { return await pending; }
+  finally { if (cacheFlights.get(name) === pending) cacheFlights.delete(name); }
 }
 
 // Exact-symbol lookup uses fixed upstream hosts and never follows a visitor URL.
