@@ -30,4 +30,4 @@
 
 API 可用環境變數設定：`MARKETPILOT_BIND_HOST` 指定迴環介面、`PORT` 指定獨立連接埠、`MARKETPILOT_KV_PATH` 指定私有持久化資料庫、`FUNNEL_HOST` 指定核准的 Tailscale 網域、`PUBLIC_ORIGIN` 指定 Pages 來源。`GEMINI_API_KEY`、`JIN10_MCP_TOKEN`、`RATE_LIMIT_SALT` 僅透過受保護的後端環境傳入。設定 `FUNNEL_HOST` 後，API 要求 Tailscale 重寫的 HTTPS、來源位址及 Funnel 標頭；應配合只監聽迴環介面使用，不可直接暴露此連接埠。
 
-全站每分鐘 120 次請求、最多 8 個同時請求／2 個 AI 研究；每日站方模型呼叫預設 48 次，自備 key 預設 96 次，重試與多角色計入模型次數。每日上限是站方保護設定，不是雲端主機額度。用量保存於本機 KV，重啟不會清零。Tailscale Funnel 有官方固定頻寬限制；資料與 AI 來源仍受各自免費額度限制。
+全站每分鐘 120 次有效請求、最多 8 個同時請求／2 個 AI 研究；所有進入 Funnel 的請求若在一分鐘超過 180 次，後端會自動關閉 Funnel，需由站方確認後手動恢復。每日站方模型呼叫預設 48 次，自備 key 預設 96 次，重試與多角色計入模型次數。每日上限是站方保護設定，不是雲端主機額度。用量保存於本機 KV，重啟不會清零。Funnel 轉送會隱藏家用網路公開 IP，但連線與計算仍到達站方電腦；限速不能保證抵擋所有大流量攻擊。Tailscale Funnel 有官方固定頻寬限制；資料與 AI 來源仍受各自免費額度限制。

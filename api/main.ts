@@ -606,6 +606,40 @@ async function handleRequest(request: Request) {
 let activeRequests = 0;
 let activeAI = 0;
 
+export function floodDecision(state: { start: number; count: number; tripped: boolean }, now: number, maximum = FLOOD_TRIP_REQUESTS) {
+  if (state.tripped) return 'blocked';
+  if (!state.start || now < state.start || now - state.start >= FLOOD_WINDOW_MS) {
+    state.start = now;
+    state.count = 0;
+  }
+  state.count += 1;
+  if (state.count > maximum) {
+    state.tripped = true;
+    return 'trip';
+  }
+  return 'allow';
+}
+
+async function protectHomeFromFlood(request: Request) {
+  const decision = floodDecision(floodState, Date.now());
+  if (decision === 'trip') {
+    const kvPath = setting('MARKETPILOT_KV_PATH');
+    if (kvPath) {
+      // The supervisor closes Funnel on this persistent marker. It never
+      // reopens automatically; the owner must explicitly start the service.
+      try {
+        await Deno.writeTextFile(kvPath + '.emergency-stop',
+          JSON.stringify({ at: new Date().toISOString(), reason: 'request-flood', count: floodState.count }),
+          { createNew: true, mode: 0o600 });
+      } catch { /* The in-process gate still fails closed. */ }
+    }
+  }
+  if (decision !== 'allow') {
+    return response(request, { error: '公開服務因異常流量暫停，請稍後再試。' }, 503, { 'Retry-After': 300 });
+  }
+  return null;
+}
+
 export async function handler(request: Request) {
   const funnelHost = setting('FUNNEL_HOST');
   const isAI = new URL(request.url).pathname === '/v1/research' && request.method === 'POST';
@@ -619,6 +653,11 @@ export async function handler(request: Request) {
       !/^[0-9a-fA-F:.]{3,45}$/.test(request.headers.get('x-forwarded-for') || ''))) {
     return response(request, { error: '請透過公開 HTTPS 入口連線。' }, 403);
   }
+  if (funnelHost) {
+    const blocked = await protectHomeFromFlood(request);
+    if (blocked) return blocked;
+  }
+  if (request.url.length > 2048) return response(request, { error: '請求網址過長。' }, 414);
   if (activeRequests >= 8 || (isAI && activeAI >= 2)) {
     return response(request, { error: '研究服務忙碌中，請稍後再試。' }, 503, { 'Retry-After': 15 });
   }

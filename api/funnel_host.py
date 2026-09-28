@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -87,6 +88,7 @@ def jin10_token():
     raise DeployError('未設定有效的金十憑證。')
 
 RUNTIME = PRIVATE / 'funnel'
+EMERGENCY_STOP = RUNTIME / 'public.sqlite3.emergency-stop'
 STATE = PRIVATE / 'funnel_host.json'
 SOCKET = PRIVATE / 'tailscale' / 'tailscaled.sock'
 TAILSCALE = '/opt/homebrew/bin/tailscale'
@@ -213,6 +215,7 @@ def supervise():
     last = None
     pending = None
     retry_at = 0.0
+    emergency_closed = False
     def terminate():
         if child and child.poll() is None:
             child.terminate()
@@ -223,6 +226,21 @@ def supervise():
                 child.wait()
     try:
         while not stop:
+            if EMERGENCY_STOP.exists() or EMERGENCY_STOP.is_symlink():
+                terminate()
+                child = None
+                if not emergency_closed:
+                    result = run([TAILSCALE, '--socket=' + str(SOCKET), 'funnel', '--https=443', 'off'], 15)
+                    emergency_closed = result.returncode == 0
+                    if emergency_closed:
+                        print('偵測到異常流量，已自動關閉 Funnel；需手動重新啟用。', flush=True)
+                time.sleep(5)
+                continue
+            if emergency_closed:
+                emergency_closed = False
+                last = None
+                pending = None
+                retry_at = 0.0
             current = fingerprint()
             # Two stable observations prevent restarts midway through a save.
             if (current != last or child is None or child.poll() is not None) and time.monotonic() >= retry_at:
@@ -304,7 +322,28 @@ def stop():
 
 
 def start():
+    if EMERGENCY_STOP.exists() or EMERGENCY_STOP.is_symlink():
+        info = EMERGENCY_STOP.lstat()
+        if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid():
+            raise DeployError('緊急停用標記權限不安全。')
+        EMERGENCY_STOP.unlink()
     install()
+    # A tripped supervisor needs time to restart its child before Funnel
+    # can safely point at the API again.
+    for _ in range(30):
+        try:
+            cfg = config()
+            request = urllib.request.Request('http://127.0.0.1:' + str(PORT) + '/v1/status', headers={
+                'Origin': cfg['origin'], 'Host': cfg['host'], 'X-Forwarded-Host': cfg['host'],
+                'X-Forwarded-Proto': 'https', 'Tailscale-Funnel-Request': '?1',
+                'X-Forwarded-For': '127.0.0.1'})
+            with urllib.request.urlopen(request, timeout=2) as answer:
+                if json.load(answer).get('ready') is True:
+                    break
+        except (OSError, ValueError, urllib.error.URLError):
+            time.sleep(1)
+    else:
+        raise DeployError('公開 API 尚未恢復，Funnel 維持關閉。')
     result = run([TAILSCALE, '--socket=' + str(SOCKET), 'funnel', '--bg', '--https=443',
                   'http://127.0.0.1:' + str(PORT)], timeout=40)
     if result.returncode:
