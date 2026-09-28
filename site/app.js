@@ -23,6 +23,9 @@
     news: 'https://s3.tradingview.com/external-embedding/embed-widget-timeline.js',
     overview: 'https://s3.tradingview.com/external-embedding/embed-widget-market-overview.js'
   });
+  // Only markets verified for these intraday widgets. Other symbols remain available
+  // for research and open on their own TradingView pages without a misleading fallback.
+  const EMBEDDABLE_CHART_EXCHANGES = new Set(['BINANCE', 'NASDAQ', 'NYSE']);
   const $ = id => document.getElementById(id);
   const svg = (name, attributes = {}) => {
     const element = document.createElementNS('http://www.w3.org/2000/svg', name);
@@ -104,9 +107,17 @@
   }
 
   function asset() { return ASSETS[state.symbol]; }
+  function canEmbedChart(selected = asset()) {
+    const exchange = selected.chart.split(':', 1)[0];
+    return EMBEDDABLE_CHART_EXCHANGES.has(exchange) && (selected.kind !== 'crypto' || exchange === 'BINANCE');
+  }
   function selectSymbol(symbol) {
     if (!state.watchlist.includes(symbol) || symbol === state.symbol) return;
     state.symbol = symbol; window.dispatchEvent(new Event('marketpilot:asset'));
+    if (state.allowed) for (const kind of ['chart', 'news']) {
+      disposeSlot(kind);
+      $(kind + '-widget').replaceChildren(element('div', 'widget-placeholder', '正在切換至 ' + asset().name + '…'));
+    }
     clearResearch(); applyChartOptions(); loadDailyLevels(); renderWatchlist();
   }
   function renderWatchlist() {
@@ -188,7 +199,7 @@
     $('news-title').textContent = '市場焦點 · ' + selected.name;
     $('timezone').value = state.timezone;
     $('chart-selection').textContent = '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準';
-    $('chart-refresh-status').textContent = !state.allowed ? '圖表在取得同意後由 TradingView 載入' : '資料由 TradingView 提供；延遲與交易時段以圖內標示為準';
+    $('chart-refresh-status').textContent = !state.allowed ? '圖表在取得同意後由 TradingView 載入' : canEmbedChart(selected) ? '資料由 TradingView 提供；延遲與交易時段以圖內標示為準' : '此市場暫不內嵌 K 線；請開啟 TradingView 標的頁';
     $('consent-card').hidden = state.allowed;
     $('connection-bar').hidden = !state.allowed;
     document.querySelectorAll('[data-symbol]').forEach(button => {
@@ -203,6 +214,7 @@
     document.querySelectorAll('[data-interval]').forEach(button => {
       const active = button.dataset.interval === state.interval;
       button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
+      button.disabled = !canEmbedChart(selected);
     });
     $('research-consent').checked = state.researchConsent;
     $('analysis-mode').value = state.analysisMode;
@@ -267,6 +279,17 @@
     if (kind === 'chart') $('chart-refresh-status').textContent = '外部圖表來源暫時無法載入，可直接開啟來源圖表';
   }
 
+  function unsupportedWidget(kind) {
+    disposeSlot(kind);
+    const root = $(kind + '-widget'), box = element('div', 'widget-placeholder');
+    const label = kind === 'chart' ? 'K 線' : '新聞';
+    box.append(element('div', 'placeholder-art', '↗'), element('strong', '', asset().name + '的' + label + '請至 TradingView 查看'),
+      element('p', '', '此交易所未列於本站已驗證的免費內嵌市場。為避免顯示其他股票的資料，這裡不載入 TradingView 元件。'));
+    const link = element('a', 'button subtle', '開啟 ' + asset().name + '標的頁 ↗');
+    link.href = chartURL(); link.target = '_blank'; link.rel = 'noopener noreferrer';
+    box.append(link); root.replaceChildren(box);
+  }
+
   function disposeSlot(kind) {
     const prior = slots.get(kind);
     if (!prior) return;
@@ -317,12 +340,15 @@
 
   function renderWidgets() {
     if (!state.allowed) return;
-    mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], timezone: state.timezone === 'exchange' ? asset().zone : state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, hide_top_toolbar: true, withdateranges: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
-    mount('news', { feedMode: 'symbol', symbol: asset().chart, colorTheme: 'dark', isTransparent: true, displayMode: 'regular', width: '100%', height: '100%', locale: 'zh_TW' }, '選定標的新聞');
+    if (canEmbedChart()) {
+      mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], timezone: state.timezone === 'exchange' ? asset().zone : state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, hide_top_toolbar: true, withdateranges: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
+      mount('news', { feedMode: 'symbol', symbol: asset().chart, colorTheme: 'dark', isTransparent: true, displayMode: 'regular', width: '100%', height: '100%', locale: 'zh_TW' }, '選定標的新聞');
+    } else {
+      unsupportedWidget('chart'); unsupportedWidget('news');
+    }
     mount('overview', { colorTheme: 'dark', dateRange: '1D', showChart: true, locale: 'zh_TW', width: '100%', height: '100%', isTransparent: true, showSymbolLogo: true, showFloatingTooltip: true, tabs: [
       { title: '加密貨幣', symbols: [{ s: 'BINANCE:BTCUSDT', d: 'Bitcoin' }, { s: 'BINANCE:ETHUSDT', d: 'Ethereum' }, { s: 'BINANCE:SOLUSDT', d: 'Solana' }] },
       { title: '美國股票', symbols: [{ s: 'NASDAQ:AAPL', d: 'Apple' }, { s: 'NASDAQ:NVDA', d: 'NVIDIA' }, { s: 'NASDAQ:MSFT', d: 'Microsoft' }] },
-      { title: '全球股票', symbols: [{ s: 'TWSE:2330', d: '台積電' }, { s: 'HKEX:700', d: '騰訊控股' }, { s: 'TSE:7203', d: '豐田汽車' }] }
     ] }, '全球市場概覽');
   }
 
