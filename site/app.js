@@ -152,7 +152,12 @@
     });
     $('asset-count').textContent = state.watchlist.length + ' / 16 個自選標的';
   }
-  function chartURL() { return 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(asset().chart); }
+  function chartURL() {
+    const symbol = asset().chart;
+    const match = /^([A-Z0-9]+):([A-Z0-9.^-]+)$/.exec(symbol);
+    return match ? 'https://www.tradingview.com/symbols/' + match[1] + '-' + match[2] + '/'
+      : 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(symbol);
+  }
   function actionText(value) { return ({ LONG: '偏多條件', SHORT: '偏空條件', WAIT: '保持觀望' })[value] || '保持觀望'; }
   function formatNumber(value, currency) {
     const number = Number(value);
@@ -179,6 +184,7 @@
     $('chart-title').replaceChildren(document.createTextNode(selected.name + ' '), badge);
     $('chart-subtitle').textContent = selected.market;
     $('open-chart').href = chartURL();
+    $('news-title').textContent = '市場焦點 · ' + selected.name;
     $('timezone').value = state.timezone;
     $('chart-selection').textContent = '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準';
     $('chart-refresh-status').textContent = !state.allowed ? '圖表在取得同意後由 TradingView 載入' : '資料由 TradingView 提供；延遲與交易時段以圖內標示為準';
@@ -253,8 +259,8 @@
     box.append(element('p', '', detail));
     const retry = element('button', 'button subtle', '重新載入來源');
     retry.addEventListener('click', () => { disposeSlot(kind); renderWidgets(); });
-    const link = element('a', 'text-button', '直接開啟 TradingView ↗');
-    link.href = kind === 'chart' ? chartURL() : 'https://www.tradingview.com/markets/';
+    const link = element('a', 'text-button', '直接開啟選定標的 ↗');
+    link.href = kind === 'overview' ? 'https://www.tradingview.com/markets/' : chartURL();
     link.target = '_blank'; link.rel = 'noopener noreferrer';
     box.append(retry, link); root.replaceChildren(box);
     if (kind === 'chart') $('chart-refresh-status').textContent = '外部圖表來源暫時無法載入，可直接開啟來源圖表';
@@ -279,7 +285,7 @@
     const content = element('div', 'tradingview-widget-container__widget');
     const attribution = element('div', 'tradingview-widget-copyright');
     const source = element('a', '', title + ' — TradingView');
-    source.href = kind === 'chart' ? chartURL() : 'https://www.tradingview.com/'; source.target = '_blank'; source.rel = 'noopener noreferrer';
+    source.href = kind === 'overview' ? 'https://www.tradingview.com/markets/' : chartURL(); source.target = '_blank'; source.rel = 'noopener noreferrer';
     attribution.append(source); wrapper.append(content, attribution); root.append(wrapper);
     const slot = { key, observer: null, timeout: null, loaded: false };
     slot.observer = new MutationObserver(() => {
@@ -311,7 +317,7 @@
   function renderWidgets() {
     if (!state.allowed) return;
     mount('chart', { autosize: true, symbol: asset().chart, interval: INTERVALS[state.interval][1], timezone: state.timezone === 'exchange' ? asset().zone : state.timezone, theme: 'dark', style: '1', locale: 'zh_TW', allow_symbol_change: false, hide_top_toolbar: true, withdateranges: false, calendar: false, support_host: 'https://www.tradingview.com' }, '市場 K 線圖表');
-    mount('news', { feedMode: 'all_symbols', colorTheme: 'dark', isTransparent: true, displayMode: 'regular', width: '100%', height: '100%', locale: 'zh_TW' }, '市場新聞');
+    mount('news', { feedMode: 'symbol', symbol: asset().chart, colorTheme: 'dark', isTransparent: true, displayMode: 'regular', width: '100%', height: '100%', locale: 'zh_TW' }, '選定標的新聞');
     mount('overview', { colorTheme: 'dark', dateRange: '1D', showChart: true, locale: 'zh_TW', width: '100%', height: '100%', isTransparent: true, showSymbolLogo: true, showFloatingTooltip: true, tabs: [
       { title: '加密貨幣', symbols: [{ s: 'BINANCE:BTCUSDT', d: 'Bitcoin' }, { s: 'BINANCE:ETHUSDT', d: 'Ethereum' }, { s: 'BINANCE:SOLUSDT', d: 'Solana' }] },
       { title: '美國股票', symbols: [{ s: 'NASDAQ:AAPL', d: 'Apple' }, { s: 'NASDAQ:NVDA', d: 'NVIDIA' }, { s: 'NASDAQ:MSFT', d: 'Microsoft' }] },
