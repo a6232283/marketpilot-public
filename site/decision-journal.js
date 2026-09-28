@@ -31,7 +31,7 @@ window.MarketPilotJournal = (() => {
     const head=el('div','panel-head'),copy=el('div');copy.append(el('div','eyebrow','FORWARD RESEARCH LOG'),el('h2','','研究決策紀錄'),el('p','section-subtitle','記下每次規則與 AI 結論，日後用同一根已收盤 K 線追蹤 5／10／20 個交易日。只存於此瀏覽器。'));head.append(copy);root.append(head);
     const actions=el('div','journal-actions'),exportButton=el('button','button subtle','匯出 JSON'),clearButton=el('button','button subtle','清除本機紀錄');
     exportButton.type=clearButton.type='button';actions.append(exportButton,clearButton);root.append(actions);
-    const note=el('p','bt-help','方向變化以還原權息或現貨收盤價計算，未扣手續費、滑價與借貸成本；觀望不是一筆交易。研究結果不能當作勝率。');root.append(note);
+    const note=el('p','bt-help','後續變化以訊號日 K 收盤價為錨點，可能不同於做研究時的即時報價；股票使用還原權息價格。未扣手續費、滑價與借貸成本；觀望不是交易，也不能由此推算勝率。');root.append(note);
     status=el('p','bt-status','');status.setAttribute('role','status');root.append(status);
     const rows=read();exportButton.disabled=clearButton.disabled=!rows.length;
     if(!rows.length){root.append(el('p','analysis-empty','尚無紀錄；規則更新或執行 AI 研究後會自動記下結論。'));return;}
