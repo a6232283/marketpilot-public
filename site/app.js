@@ -155,8 +155,9 @@
   function chartURL() {
     const symbol = asset().chart;
     const match = /^([A-Z0-9]+):([A-Z0-9.^-]+)$/.exec(symbol);
-    return match ? 'https://www.tradingview.com/symbols/' + match[1] + '-' + match[2] + '/'
-      : 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(symbol);
+    if (!match) return 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(symbol);
+    if (match[1] === 'BINANCE') return 'https://www.tradingview.com/symbols/' + match[2] + '/?exchange=BINANCE';
+    return 'https://www.tradingview.com/symbols/' + match[1] + '-' + match[2] + '/';
   }
   function actionText(value) { return ({ LONG: '偏多條件', SHORT: '偏空條件', WAIT: '保持觀望' })[value] || '保持觀望'; }
   function formatNumber(value, currency) {
