@@ -643,6 +643,10 @@ async function protectHomeFromFlood(request: Request) {
 export async function handler(request: Request) {
   const funnelHost = setting('FUNNEL_HOST');
   const isAI = new URL(request.url).pathname === '/v1/research' && request.method === 'POST';
+  if (funnelHost) {
+    const blocked = await protectHomeFromFlood(request);
+    if (blocked) return blocked;
+  }
   // In self-hosted mode only the loopback Tailscale reverse proxy is admitted.
   // Tailscale v1.102.4 replaces X-Forwarded-For with the actual source address
   // and removes visitor-supplied Tailscale identity headers (serve.go).
@@ -652,10 +656,6 @@ export async function handler(request: Request) {
       request.headers.get('tailscale-funnel-request') !== '?1' ||
       !/^[0-9a-fA-F:.]{3,45}$/.test(request.headers.get('x-forwarded-for') || ''))) {
     return response(request, { error: '請透過公開 HTTPS 入口連線。' }, 403);
-  }
-  if (funnelHost) {
-    const blocked = await protectHomeFromFlood(request);
-    if (blocked) return blocked;
   }
   if (request.url.length > 2048) return response(request, { error: '請求網址過長。' }, 414);
   if (activeRequests >= 8 || (isAI && activeAI >= 2)) {
