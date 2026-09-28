@@ -197,6 +197,7 @@
     $('chart-subtitle').textContent = selected.market;
     $('open-chart').href = chartURL();
     $('news-title').textContent = '市場焦點 · ' + selected.name;
+    $('news-subtitle').textContent = canEmbedChart(selected) ? '與目前選定標的相關的新聞由 TradingView 官方元件提供；新聞量依市場而異' : '此市場不載入可能顯示其他股票的內嵌新聞；請開啟對應標的頁';
     $('timezone').value = state.timezone;
     $('chart-selection').textContent = canEmbedChart(selected) ? '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準' : '此市場的分鐘 K 線請至 TradingView 標的頁查看；本站不顯示其他股票的替代圖。';
     $('chart-range-note').textContent = canEmbedChart(selected) ? '顯示範圍可在圖內縮放' : '此市場的內嵌週期暫不可用';
@@ -284,9 +285,9 @@
     disposeSlot(kind);
     const root = $(kind + '-widget'), box = element('div', 'widget-placeholder');
     const label = kind === 'chart' ? 'K 線' : '新聞';
-    box.append(element('div', 'placeholder-art', '↗'), element('strong', '', asset().name + '的' + label + '請至 TradingView 查看'),
+    box.append(element('div', 'placeholder-art', '↗'), element('strong', '', asset().name + '的 ' + label + '請至 TradingView 查看'),
       element('p', '', '此交易所未列於本站已驗證的免費內嵌市場。為避免顯示其他股票的資料，這裡不載入 TradingView 元件。'));
-    const link = element('a', 'button subtle', '開啟 ' + asset().name + '標的頁 ↗');
+    const link = element('a', 'button subtle', '開啟' + asset().name + '的標的頁 ↗');
     link.href = chartURL(); link.target = '_blank'; link.rel = 'noopener noreferrer';
     box.append(link); root.replaceChildren(box);
   }
