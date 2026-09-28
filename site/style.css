@@ -49,4 +49,5 @@ dialog{width:min(720px,calc(100vw - 32px));max-height:85vh;padding:0;border:1px 
 .public-risk-copy h2{color:#f6dfa9;font-size:13px;font-weight:650;letter-spacing:0;margin-bottom:3px}
 .public-risk-copy p{color:#d2c7b5;font-size:11px;line-height:1.7}
 .public-risk-notice .text-button{color:#f1d18e;white-space:nowrap;font-size:11px}
+.candle-periods button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:800px){.public-risk-notice{grid-template-columns:28px minmax(0,1fr);align-items:start;padding:13px;gap:8px 11px}.public-risk-notice .text-button{grid-column:2;justify-self:start}}

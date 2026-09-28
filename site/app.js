@@ -109,7 +109,7 @@
   function asset() { return ASSETS[state.symbol]; }
   function canEmbedChart(selected = asset()) {
     const exchange = selected.chart.split(':', 1)[0];
-    return EMBEDDABLE_CHART_EXCHANGES.has(exchange) && (selected.kind !== 'crypto' || exchange === 'BINANCE');
+    return EMBEDDABLE_CHART_EXCHANGES.has(exchange) && (selected.kind === 'crypto' ? exchange === 'BINANCE' : selected.kind === 'stock' && exchange !== 'BINANCE');
   }
   function selectSymbol(symbol) {
     if (!state.watchlist.includes(symbol) || symbol === state.symbol) return;
@@ -198,7 +198,8 @@
     $('open-chart').href = chartURL();
     $('news-title').textContent = '市場焦點 · ' + selected.name;
     $('timezone').value = state.timezone;
-    $('chart-selection').textContent = '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準';
+    $('chart-selection').textContent = canEmbedChart(selected) ? '預設每根 K 線 ' + INTERVALS[state.interval][0] + ' · ' + (state.timezone === 'exchange' ? selected.zone : state.timezone) + ' · 圖內可縮放；以圖內實際週期為準' : '此市場的分鐘 K 線請至 TradingView 標的頁查看；本站不顯示其他股票的替代圖。';
+    $('chart-range-note').textContent = canEmbedChart(selected) ? '顯示範圍可在圖內縮放' : '此市場的內嵌週期暫不可用';
     $('chart-refresh-status').textContent = !state.allowed ? '圖表在取得同意後由 TradingView 載入' : canEmbedChart(selected) ? '資料由 TradingView 提供；延遲與交易時段以圖內標示為準' : '此市場暫不內嵌 K 線；請開啟 TradingView 標的頁';
     $('consent-card').hidden = state.allowed;
     $('connection-bar').hidden = !state.allowed;
@@ -348,8 +349,8 @@
     }
     mount('overview', { colorTheme: 'dark', dateRange: '1D', showChart: true, locale: 'zh_TW', width: '100%', height: '100%', isTransparent: true, showSymbolLogo: true, showFloatingTooltip: true, tabs: [
       { title: '加密貨幣', symbols: [{ s: 'BINANCE:BTCUSDT', d: 'Bitcoin' }, { s: 'BINANCE:ETHUSDT', d: 'Ethereum' }, { s: 'BINANCE:SOLUSDT', d: 'Solana' }] },
-      { title: '美國股票', symbols: [{ s: 'NASDAQ:AAPL', d: 'Apple' }, { s: 'NASDAQ:NVDA', d: 'NVIDIA' }, { s: 'NASDAQ:MSFT', d: 'Microsoft' }] },
-    ] }, '全球市場概覽');
+      { title: '美國股票', symbols: [{ s: 'NASDAQ:AAPL', d: 'Apple' }, { s: 'NASDAQ:NVDA', d: 'NVIDIA' }, { s: 'NASDAQ:MSFT', d: 'Microsoft' }] }
+    ] }, '美股與加密市場概覽');
   }
 
   function applyChartOptions() {
