@@ -284,8 +284,8 @@
   function unsupportedWidget(kind) {
     disposeSlot(kind);
     const root = $(kind + '-widget'), box = element('div', 'widget-placeholder');
-    const label = kind === 'chart' ? 'K 線' : '新聞';
-    box.append(element('div', 'placeholder-art', '↗'), element('strong', '', asset().name + '的 ' + label + '請至 TradingView 查看'),
+    const label = kind === 'chart' ? '的 K 線' : '的新聞';
+    box.append(element('div', 'placeholder-art', '↗'), element('strong', '', asset().name + label + '請至 TradingView 查看'),
       element('p', '', '此交易所未列於本站已驗證的免費內嵌市場。為避免顯示其他股票的資料，這裡不載入 TradingView 元件。'));
     const link = element('a', 'button subtle', '開啟' + asset().name + '的標的頁 ↗');
     link.href = chartURL(); link.target = '_blank'; link.rel = 'noopener noreferrer';
