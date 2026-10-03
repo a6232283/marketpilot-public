@@ -145,6 +145,59 @@ export function forwardOutcomes(bars: DatedBar[], barTime: number) {
     basis:"已完成日 K 收盤價；股票使用還原權息資料。方向變化未扣交易成本，觀望不視為交易。"};
 }
 
+const average = (values: number[]) => values.reduce((sum,value)=>sum+value,0)/values.length;
+
+export function longTermAssessment(rawBars: DatedBar[]) {
+  const bars=rawBars.slice(-800),closes=bars.map(bar=>bar.close);
+  if(closes.length<253) throw new PublicError('長期模式需要至少 253 根已完成日 K。');
+  const close=closes.at(-1)!,sma50=average(closes.slice(-50)),sma200=average(closes.slice(-200));
+  const momentum63=(close/closes.at(-64)!-1)*100,momentum252=(close/closes.at(-253)!-1)*100;
+  const rsi14=rsi(closes,14)! ,peak=Math.max(...closes.slice(-252)),drawdown=(close/peak-1)*100;
+  const returns=closes.slice(-20).map((value,index,tail)=>index?value/tail[index-1]-1:0).slice(1);
+  const mean=average(returns),volatility=Math.sqrt(average(returns.map(value=>(value-mean)**2)))*Math.sqrt(252)*100;
+  const checks:[string,boolean,string][]=[
+    ['收盤相對 200 日均線',close>=sma200,close>=sma200?'收盤在 200 日均線之上':'收盤低於 200 日均線'],
+    ['50／200 日均線趨勢',sma50>=sma200,sma50>=sma200?'50 日均線高於 200 日均線':'50 日均線低於 200 日均線'],
+    ['約 3 個月動能',momentum63>=0,(momentum63>=0?'+':'')+momentum63.toFixed(2)+'%'],
+    ['約 12 個月動能',momentum252>=0,(momentum252>=0?'+':'')+momentum252.toFixed(2)+'%'],
+    ['RSI 過熱檢查',rsi14>=45&&rsi14<=70,'RSI14 '+rsi14.toFixed(1)],
+  ];
+  const score=checks.filter(([,passed])=>passed).length;
+  let state:string,label:string,summary:string,plan:string[];
+  if(score>=4){
+    state='ACCUMULATE';label='長期累積條件';summary='趨勢與長期動能多數同向；仍需在完成週／月 K 後檢查，不能視為保證。';
+    plan=['先核對此標的是否符合你的資產配置與風險上限。','把研究預算拆成數個等份，只在完成週／月 K 後重新確認條件。','若收盤跌破 200 日均線且 50 日均線轉弱，暫停新增曝險並重評。'];
+  } else if(score>=2){
+    state='PACE';label='分批觀察';summary='長期證據不完整；保持固定檢查節奏，等待趨勢或動能進一步確認。';
+    plan=['先訂定可承受的總曝險上限，再決定是否需要研究。','不要因單日波動改變長期假設；等待完成週 K 與月 K 確認。','若 200 日趨勢和 12 個月動能轉弱，重新檢查持有理由。'];
+  } else if(close<sma200&&sma50<sma200){
+    state='DEFENSIVE';label='防守檢視';summary='價格與均線趨勢均偏弱；先檢查風險、集中度與原始投資假設。';
+    plan=['先檢查集中度、流動性與最大可承受損失。','在趨勢重新改善前，避免把反彈直接當成長期趨勢反轉。','只在完成週／月 K 後重評，保留完整紀錄。'];
+  } else {
+    state='WAIT';label='等待趨勢確認';summary='長期訊號互相矛盾；保留觀察，不根據單一指標調整計畫。';
+    plan=['等待 200 日趨勢與長期動能方向一致。','以週／月 K 為檢查節點，避免被短期價格雜訊帶動。','把尚未確認的假設記入研究紀錄，之後回顧。'];
+  }
+  return {state,label,summary,checks:checks.map(([name,passed,detail])=>({name,passed,detail})),
+    metrics:{sma50:Number(sma50.toFixed(6)),sma200:Number(sma200.toFixed(6)),momentum63Pct:Number(momentum63.toFixed(4)),momentum252Pct:Number(momentum252.toFixed(4)),rsi14:Number(rsi14.toFixed(3)),drawdown252Pct:Number(drawdown.toFixed(4)),annualizedVolatility20Pct:Number(volatility.toFixed(4))},
+    plan,review:'以完成週 K 為例行檢查，完成月 K 時再檢查長期假設。',
+    basis:'最近已完成日 K；股票使用還原權息資料。這是一般研究條件，不是個別投資建議或資產配置指令。'};
+}
+
+export function blindBars(bars: DatedBar[], base = bars[0]?.close) {
+  if(!(base>0)||!Number.isFinite(base)) throw new PublicError('盲測基準價格無效。');
+  return bars.map((bar,index)=>({n:index+1,open:Number((bar.open/base*100).toFixed(4)),high:Number((bar.high/base*100).toFixed(4)),low:Number((bar.low/base*100).toFixed(4)),close:Number((bar.close/base*100).toFixed(4))}));
+}
+
+export function blindReveal(rawBars: DatedBar[], anchorTime:number, visible:number, horizon:number, choice:string) {
+  if(!['LONG','SHORT','WAIT'].includes(choice)) throw new PublicError('盲測方向不正確。');
+  const index=rawBars.findIndex(bar=>bar.time===anchorTime);
+  if(index<0||index-visible+1<0||index+horizon>=rawBars.length) throw new PublicError('盲測回合已失效，請重新開始。');
+  const start=index-visible+1,base=rawBars[start].close,anchor=rawBars[index].close,future=rawBars.slice(index+1,index+horizon+1);
+  const terminalChangePct=(future.at(-1)!.close/anchor-1)*100,maxAdversePct=(Math.min(...future.map(bar=>bar.low))/anchor-1)*100,maxFavourablePct=(Math.max(...future.map(bar=>bar.high))/anchor-1)*100;
+  const directional=choice==='WAIT'?0:choice==='LONG'?terminalChangePct:-terminalChangePct;
+  return {choice,verdict:choice==='WAIT'?'不評分（選擇觀望）':directional>0?'方向與後續收盤一致':directional<0?'方向相反':'後續收盤持平',anchorDate:rawBars[index].date,horizon,terminalChangePct:Number(terminalChangePct.toFixed(4)),maxAdversePct:Number(maxAdversePct.toFixed(4)),maxFavourablePct:Number(maxFavourablePct.toFixed(4)),chart:blindBars(rawBars.slice(start,index+horizon+1),base),basis:'匿名化百分比日 K；揭曉後才顯示訊號日。結果未扣成本，僅供練習判讀，不是交易績效。'};
+}
+
 export function warmupBars(cfg: BacktestConfig) {
   if (cfg.strategy === "buyhold") return 0;
   const key: Record<string, keyof BacktestConfig> = {ema:"slowPeriod",sma:"slowPeriod",rsi:"rsiPeriod",breakout:"breakoutPeriod",bollinger:"bbPeriod",macd:"macdSlow",momentum:"momentumPeriod"};
